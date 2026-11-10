@@ -1,0 +1,492 @@
+# The xcl-typescript test suite: the package on every platform it is published
+# for, against every supported Node, with the engine program, xcl-core, built
+# from an xcl checkout. Go is needed here only to build that program and the
+# fixture plugins, and no C compiler is needed for either; an installed package
+# bundles the program and needs neither.
+#
+# It is a reusable workflow so the same suite runs in two places: ci.yml runs
+# it for xcl-typescript's own changes against the engine pinned in xcl-ref.txt,
+# and xcl can run it for an xcl pull request against that pull request's
+# commit, so an engine change that breaks TypeScript is caught before it merges.
+#
+#   typescript-ref  the xcl-typescript ref to test (default main)
+#   xcl-ref         the xcl ref to build the engine from (default: xcl-ref.txt)
+#
+# A called workflow checks out its caller by default, so every checkout here
+# names its repository. The final job, result, is the one check to require:
+# it fails unless every job before it succeeded.
+#
+# Every test run is strict: XCL_TEST_STRICT=1 fails a test whose engine, fixture
+# plugins, xcl sources or plugin release are missing, so a job that should have
+# had them can never go green with its tests skipped.
+#
+# The end-to-end tests install the signed release of the test plugin,
+# jumppad-labs/xcl-plugin-test, and need no Docker engine; GITHUB_TOKEN keeps
+# the jobs' release downloads inside GitHub's API rate limit. TMPDIR is short on
+# Unix because go-plugin's unix sockets are limited to 108 bytes. musl is tested
+# in Alpine containers on the two Linux runners.
+#
+# The package job assembles the nine npm tarballs once, as a release does:
+# scripts/assemble.mjs runs on POSIX only, and needs all eight engine archives.
+# The install jobs then install those tarballs on every platform with no Go or
+# C compiler on the path, and run the parity suite and the getting-started
+# example against what was installed.
+
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      typescript-ref:
+        description: The xcl-typescript ref to test
+        required: false
+        type: string
+        default: main
+      xcl-ref:
+        description: The xcl ref to build the engine from; xcl-ref.txt when empty
+        required: false
+        type: string
+        default: ''
+
+env:
+  GO_VERSION: '1.27.0'
+  # what the tarballs and their engines are stamped with: never a published
+  # version, and the engine ref may be a branch or a commit, not a tag
+  TARBALL_TAG: v0.0.0-ci
+  # what the getting-started example prints
+  EXAMPLE_OUTPUT: test.item.second two first-one
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / node${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+        node: ['22', '24', '26']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl-typescript
+          ref: ${{ inputs.typescript-ref }}
+
+      - name: Read the xcl ref
+        id: xcl
+        shell: bash
+        env:
+          XCL_REF: ${{ inputs.xcl-ref }}
+        run: |
+          ref="${XCL_REF:-$(tr -d '[:space:]' < xcl-ref.txt)}"
+          echo "testing against xcl $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ steps.xcl.outputs.ref }}
+          path: xcl-src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Use a short temporary directory
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p /tmp/xcl
+          echo "TMPDIR=/tmp/xcl" >> "$GITHUB_ENV"
+
+      # the generated messages are committed, so buf's install script is not needed
+      - name: Install
+        shell: bash
+        run: npm ci --ignore-scripts
+
+      - name: Build the engine program and fixture plugins
+        shell: bash
+        run: make engine plugins XCL_SRC="$PWD/xcl-src"
+
+      - name: Test
+        shell: bash
+        env:
+          XCL_CORE_PATH: ${{ github.workspace }}/build/engine/xcl-core${{ runner.os == 'Windows' && '.exe' || '' }}
+          XCL_SRC: ${{ github.workspace }}/xcl-src
+          XCL_TEST_STRICT: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm test
+
+  # musl: the same suite inside Alpine, on both Linux architectures, on the
+  # engine program, which needs no C compiler to build. The checkouts happen
+  # on the runner and Alpine is started by hand, because GitHub cannot run
+  # its JavaScript actions in an Alpine job container on the arm64 runners.
+  test-musl:
+    name: alpine / ${{ matrix.arch }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24', '26']
+        arch: [x86_64, aarch64]
+        include:
+          - { arch: x86_64,  runner: ubuntu-latest }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl-typescript
+          ref: ${{ inputs.typescript-ref }}
+
+      - name: Read the xcl ref
+        id: xcl
+        shell: bash
+        env:
+          XCL_REF: ${{ inputs.xcl-ref }}
+        run: |
+          ref="${XCL_REF:-$(tr -d '[:space:]' < xcl-ref.txt)}"
+          echo "testing against xcl $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ steps.xcl.outputs.ref }}
+          path: xcl-src
+
+      - name: Build the engine program and test in Alpine
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e GO_VERSION -e GITHUB_TOKEN \
+            -e XCL_CORE_PATH=/work/build/engine/xcl-core -e XCL_SRC=/work/xcl-src \
+            -e XCL_TEST_STRICT=1 -e TMPDIR=/tmp/xcl node:${{ matrix.node }}-alpine sh -ec '
+            mkdir -p "$TMPDIR"
+            # zip and unzip are for the tests of scripts/assemble.mjs
+            apk add --no-cache git make curl tar zip unzip
+            # Go from its official archive: the go package of Alpine pulls in gcc,
+            # and nothing here needs a C compiler
+            case "$(uname -m)" in x86_64) goarch=amd64 ;; aarch64) goarch=arm64 ;; esac
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" | tar -C /usr/local -xz
+            export PATH="/usr/local/go/bin:$PATH"
+            if command -v cc || command -v gcc; then echo "a C compiler is installed"; exit 1; fi
+            git config --global --add safe.directory "*"
+            npm ci --ignore-scripts
+            make engine plugins XCL_SRC=/work/xcl-src
+            npm test'
+
+  # the nine tarballs: eight engine archives cross-compiled from one machine,
+  # named as the xcl release names them, and assembled by the release's script.
+  # The engines are stamped with TARBALL_TAG, which assemble.mjs also writes
+  # into the package, so the package's engine version check passes.
+  package:
+    name: Assemble the tarballs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl-typescript
+          ref: ${{ inputs.typescript-ref }}
+
+      - name: Read the xcl ref
+        id: xcl
+        shell: bash
+        env:
+          XCL_REF: ${{ inputs.xcl-ref }}
+        run: |
+          ref="${XCL_REF:-$(tr -d '[:space:]' < xcl-ref.txt)}"
+          echo "testing against xcl $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ steps.xcl.outputs.ref }}
+          path: xcl-src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Build the engine archives
+        run: |
+          set -euo pipefail
+          version="${TARBALL_TAG#v}"
+          mkdir -p archives
+          for target in linux_amd64:linux:amd64 linux_amd64_musl:linux:amd64 \
+                        linux_arm64:linux:arm64 linux_arm64_musl:linux:arm64 \
+                        darwin_amd64:darwin:amd64 darwin_arm64:darwin:arm64 \
+                        windows_amd64:windows:amd64 windows_arm64:windows:arm64; do
+            IFS=: read -r asset goos goarch <<< "$target"
+            unpacked="$(mktemp -d)"
+            if [ "$goos" = windows ]; then
+              make -C xcl-src xcl-core GOOS="$goos" GOARCH="$goarch" XCL_CORE_VERSION="$TARBALL_TAG" XCL_CORE_OUT="$unpacked/xcl-core.exe"
+              zip -q -j "archives/xcl-core_${version}_${asset}.zip" "$unpacked/xcl-core.exe"
+            else
+              make -C xcl-src xcl-core GOOS="$goos" GOARCH="$goarch" XCL_CORE_VERSION="$TARBALL_TAG" XCL_CORE_OUT="$unpacked/xcl-core"
+              tar -czf "archives/xcl-core_${version}_${asset}.tar.gz" -C "$unpacked" xcl-core
+            fi
+            rm -rf "$unpacked"
+          done
+          ls -la archives
+
+      - name: Assemble the tarballs
+        run: node scripts/assemble.mjs archives "$TARBALL_TAG" --out tarballs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs/*.tgz
+          if-no-files-found: error
+
+  # the tarballs in a fresh project on every platform, with no Go or C compiler
+  # on the path. Go builds the fixture plugins and the Go parity program first,
+  # since the suite compares against them, and is then hidden for the install.
+  # The compiled parity suite runs in the fresh project with its source tree
+  # linked to the installed dist, so it exercises what was installed.
+  install:
+    name: install ${{ matrix.os }} / node${{ matrix.node }}
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+        node: ['22', '24', '26']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl-typescript
+          ref: ${{ inputs.typescript-ref }}
+
+      - name: Read the xcl ref
+        id: xcl
+        shell: bash
+        env:
+          XCL_REF: ${{ inputs.xcl-ref }}
+        run: |
+          ref="${XCL_REF:-$(tr -d '[:space:]' < xcl-ref.txt)}"
+          echo "testing against xcl $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ steps.xcl.outputs.ref }}
+          path: xcl-src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Use a short temporary directory
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p /tmp/xcl
+          echo "TMPDIR=/tmp/xcl" >> "$GITHUB_ENV"
+
+      - name: Build the fixture plugins and compile the tests
+        shell: bash
+        run: |
+          npm ci --ignore-scripts
+          make plugins XCL_SRC="$PWD/xcl-src"
+          npx tsc -p tsconfig.test.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs
+
+      - name: Install the tarballs without a toolchain, and check them
+        shell: bash
+        env:
+          XCL_SRC: ${{ github.workspace }}/xcl-src
+          XCL_TEST_STRICT: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # hide every Go and C compiler the runner has
+          mkdir -p "$HOME/clean-bin"
+          for tool in go gcc cc clang zig; do
+            printf '#!/bin/sh\necho "%s is not available" >&2\nexit 127\n' "$tool" > "$HOME/clean-bin/$tool"
+            chmod +x "$HOME/clean-bin/$tool"
+          done
+          export PATH="$HOME/clean-bin:$PATH"
+          for tool in go gcc cc clang zig; do
+            if "$tool" --version >/dev/null 2>&1; then echo "$tool is still available"; exit 1; fi
+          done
+
+          workspace="$PWD"
+          project="$(cd "$RUNNER_TEMP" && pwd)/xcl-install"
+          version="${TARBALL_TAG#v}"
+          package="xcl-lang-$(node -p "process.platform + '-' + process.arch")"
+          case "$package" in xcl-lang-linux-*) package="$package-gnu" ;; esac
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then exe=".exe"; fi
+
+          mkdir -p "$project"
+          cp -r "$workspace/examples/getting-started/." "$project/"
+          cp "$workspace/tarballs/"*.tgz "$project/"
+          cd "$project"
+          npm install --no-audit --no-fund "./xcl-lang-$version.tgz" "./$package-$version.tgz" typescript@5.9.3 @types/node@22.20.5
+          test -x "node_modules/$package/bin/xcl-core$exe"
+
+          # the install check: compiled against the installed types, and with
+          # no XCL_CORE_PATH, so the engine comes from the platform package
+          npx tsc -p .
+          output="$(node build/main.js)"
+          echo "$output"
+          grep -Fq "$EXAMPLE_OUTPUT" <<< "$output"
+
+          # the parity suite against the installed dist and engine
+          mkdir -p build/test
+          cp -r "$workspace/build/test/test" build/test/test
+          cp -r "$workspace/build/plugins" build/plugins
+          node -e "require('fs').symlinkSync(require('path').resolve('node_modules/xcl-lang/dist'), 'build/test/src', 'junction')"
+          XCL_CORE_PATH="$(node -p "require('path').resolve('node_modules/$package/bin/xcl-core$exe')")"
+          export XCL_CORE_PATH
+          node --test --test-timeout=300000 "build/test/test/parity/*.test.js"
+
+      # the plugin was installed into ~/.xcl by the run above, so no network is
+      # needed from here on; the slim image has no compiler either
+      - name: Run the installed package with networking off
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NODE: ${{ matrix.node }}
+        run: |
+          docker run --rm --network none -v "$RUNNER_TEMP/xcl-install:/project" -v "$HOME/.xcl:/root/.xcl" \
+            -w /project -e EXAMPLE_OUTPUT "node:${NODE}-slim" sh -ec '
+            rm -rf .xcl operations.log
+            output="$(node build/main.js)"
+            echo "$output"
+            echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"'
+
+  # the same on musl, in Alpine, where Go is removed before the install and
+  # there is no C compiler at all
+  install-musl:
+    name: install alpine / ${{ matrix.arch }} / node ${{ matrix.node }}
+    needs: package
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24', '26']
+        arch: [x86_64, aarch64]
+        include:
+          - { arch: x86_64,  runner: ubuntu-latest,    package: xcl-lang-linux-x64-musl }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, package: xcl-lang-linux-arm64-musl }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl-typescript
+          ref: ${{ inputs.typescript-ref }}
+
+      - name: Read the xcl ref
+        id: xcl
+        shell: bash
+        env:
+          XCL_REF: ${{ inputs.xcl-ref }}
+        run: |
+          ref="${XCL_REF:-$(tr -d '[:space:]' < xcl-ref.txt)}"
+          echo "testing against xcl $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ steps.xcl.outputs.ref }}
+          path: xcl-src
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs
+
+      - name: Install the tarballs without a toolchain, and check them in Alpine
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/xcl-install" "$RUNNER_TEMP/xcl-home"
+          docker run --rm -v "$PWD:/work" -v "$RUNNER_TEMP/xcl-install:/project" -v "$RUNNER_TEMP/xcl-home:/root/.xcl" -w /work \
+            -e GO_VERSION -e TARBALL_TAG -e EXAMPLE_OUTPUT -e PACKAGE -e GITHUB_TOKEN \
+            -e XCL_SRC=/work/xcl-src -e XCL_TEST_STRICT=1 -e TMPDIR=/tmp/xcl node:${{ matrix.node }}-alpine sh -ec '
+            mkdir -p "$TMPDIR"
+            apk add --no-cache git make curl tar
+            case "$(uname -m)" in x86_64) goarch=amd64 ;; aarch64) goarch=arm64 ;; esac
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" | tar -C /usr/local -xz
+            export PATH="/usr/local/go/bin:$PATH"
+            git config --global --add safe.directory "*"
+            npm ci --ignore-scripts
+            make plugins XCL_SRC=/work/xcl-src
+            npx tsc -p tsconfig.test.json
+
+            rm -rf /usr/local/go
+            for tool in go gcc cc clang; do
+              if command -v "$tool"; then echo "$tool is still available"; exit 1; fi
+            done
+
+            version="${TARBALL_TAG#v}"
+            cp -r /work/examples/getting-started/. /project/
+            cp /work/tarballs/*.tgz /project/
+            cd /project
+            npm install --no-audit --no-fund "./xcl-lang-$version.tgz" "./$PACKAGE-$version.tgz" typescript@5.9.3 @types/node@22.20.5
+            test -x "node_modules/$PACKAGE/bin/xcl-core"
+
+            npx tsc -p .
+            output="$(node build/main.js)"
+            echo "$output"
+            echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"
+
+            mkdir -p build/test
+            cp -r /work/build/test/test build/test/test
+            cp -r /work/build/plugins build/plugins
+            ln -s /project/node_modules/xcl-lang/dist build/test/src
+            XCL_CORE_PATH="/project/node_modules/$PACKAGE/bin/xcl-core" \
+              node --test --test-timeout=300000 "build/test/test/parity/*.test.js"'
+
+      - name: Run the installed package with networking off
+        shell: bash
+        run: |
+          docker run --rm --network none -v "$RUNNER_TEMP/xcl-install:/project" -v "$RUNNER_TEMP/xcl-home:/root/.xcl" \
+            -w /project -e EXAMPLE_OUTPUT node:${{ matrix.node }}-alpine sh -ec '
+            rm -rf .xcl operations.log
+            output="$(node build/main.js)"
+            echo "$output"
+            echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"'
+
+  # the one check to require: it fails unless every job above succeeded, and
+  # always runs, so a skipped or cancelled job can never pass for a success
+  result:
+    name: result
+    needs: [test, test-musl, package, install, install-musl]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "job results: $RESULTS"
+          if [ "$(jq -r 'map(select(. != "success")) | length' <<< "$RESULTS")" != 0 ]; then
+            echo "the test suite did not pass"
+            exit 1
+          fi

@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "esnext.disposable"],
+    "strict": true,
+    "types": ["node"],
+    "outDir": "build"
+  },
+  "include": ["main.ts"]
+}
