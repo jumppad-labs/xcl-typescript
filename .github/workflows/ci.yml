@@ -1,0 +1,18 @@
+# Runs the test suite, test.yml, for xcl-typescript's own changes: this commit
+# against the engine pinned in xcl-ref.txt. xcl can run the same suite for its
+# pull requests against their own commit.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      typescript-ref: ${{ github.event.pull_request.head.sha || github.sha }}

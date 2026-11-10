@@ -1,0 +1,55 @@
+# Tags a merge that moves the engine pin with the pinned tag itself: the
+# package is released at the version of the engine it bundles. The paths filter
+# means a merge that does not change xcl-ref.txt starts nothing and tags
+# nothing, and a pin whose tag already exists tags nothing either.
+#
+# The tag is pushed with a token of the xcl release bot GitHub App, since a tag
+# pushed with the built-in GITHUB_TOKEN starts no workflows, and release.yml has
+# to start from it.
+
+name: Tag
+
+on:
+  push:
+    branches: [main]
+    paths: [xcl-ref.txt]
+
+concurrency:
+  group: tag
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Tag the pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Push the pinned tag
+        shell: bash
+        run: |
+          tag="$(tr -d '[:space:]' < xcl-ref.txt)"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "xcl-ref.txt must pin a tag like v1.2.3, got '$tag'"; exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "$tag already exists; nothing to tag"
+            exit 0
+          fi
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$tag"
+          echo "tagged $GITHUB_SHA with $tag"

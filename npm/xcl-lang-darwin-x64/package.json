@@ -1,0 +1,20 @@
+{
+  "name": "xcl-lang-darwin-x64",
+  "version": "0.0.0-dev",
+  "description": "The xcl engine for darwin x64, used by xcl-lang.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jumppad-labs/xcl-typescript.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "preferUnplugged": true,
+  "files": [
+    "bin"
+  ]
+}

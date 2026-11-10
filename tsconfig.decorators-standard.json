@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "build/decorators-standard",
+    "declaration": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/decorators/**/*.ts"
+  ]
+}

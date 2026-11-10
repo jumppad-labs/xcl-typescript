@@ -1,0 +1,9 @@
+# Generates the CoreService and frame messages from xcl's protos into
+# src/internal/core; see the protos target in the Makefile.
+version: v2
+plugins:
+  - local: protoc-gen-es
+    out: src/internal/core
+    opt:
+      - target=ts
+      - import_extension=js
