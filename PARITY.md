@@ -81,15 +81,51 @@ The encoding options are all off by default: `IncludeComputed()` is `includeComp
 | `mask.EncryptAES256GCM`, `HashHMACSHA256`, `Redact`, `Omit` | `mask.aes256gcm`, `hmacSha256`, `redact`, `omit` |
 | Sentinel errors and error types of `xcl/errors` | one class per code, each `instanceof XclError` |
 
-## Printing and logging
+## Printing
 
-Printing errors, resources and diffs, themes, formatters and the pretty logger belong to the next part of the TypeScript SDK, and are not in this release.
+The engine lays out reports, configuration text and change summaries as labelled text, the same tokens Go's formatters receive, and the built-in formats write the same bytes as Go's. The parity suite compares printed reports, entities and change summaries for every fixture, and the formats and stylesheet are held to the reference outputs in xcl's `highlight/testdata/reference`.
 
 | Go | TypeScript |
 |---|---|
-| `xcl.PrintError`, `xcl.PrintDiff`, `xcl.ErrorTokens`, `(*diff.Diff).Tokens()` | planned |
-| `PrintEntity`, `EntityTokens` | planned |
-| `highlight.*`, `events.SlogHandler`, `example/prettylog` | planned |
+| `xcl.PrintError(w, err, options...)` | `printError(err, { out, formatter, theme, width })`; `formatError(err, {...})` for a string |
+| `xcl.PrintEntity(w, entity, options...)` | `await config.printEntity(entity, { out, formatter, theme, includeComputed, ... })` |
+| `xcl.PrintDiff(w, d, options...)` | `printDiff(diff, { out, formatter, theme })` |
+| `xcl.PrintOption`, `xcl.WithFormatter(f)`, `xcl.WithTheme(t)`, `xcl.WithWidth(n)` | the options object, `PrintOptions` and `FormatOptions`, with `formatter`, `theme` and `width`; a `width` of `0` or `null` never wraps |
+| `xcl.ErrorTokens(err)` | `err.tokens` |
+| `xcl.EntityTokens(entity, options...)` | `await config.entityTokens(entity, options)` |
+| `(*diff.Diff).Tokens()` | `diff.tokens`, on a diff `config.diff` returned |
+| `%+v` on a configuration error | `err.report`, the plain report; `console.error(err)` and an uncaught error show it |
+| `highlight.Plain`, `Terminal`, `HTML`, `HTMLInline`, `SVG` | `plain`, `terminal`, `html`, `htmlInline`, `svg` |
+| `highlight.Formatter`, `highlight.FormatterFunc` | `Formatter`, a function `(out, theme, tokens) => void` writing to a `Writer` |
+| `highlight.Kind`, `highlight.Token` | `Kind` (a numeric enum, the same numbers and names), `Token` |
+| `highlight.Kinds()` | the `Kind` enum's numeric members, in numeric order: `Object.values(Kind).filter((kind) => typeof kind === "number")` |
+| `Kind.Parent()`, `Kind.Class()` | `parentOf(kind)`, `cssClassOf(kind)`, for any number |
+| `Kind.String()` | `Kind[kind]`, the enum's own reverse mapping, such as `"BlockType"`; undefined for a number this package does not know |
+| `highlight.Theme`, `highlight.DefaultTheme` | `Theme` (a style string by kind), `defaultTheme` (frozen) |
+| `DefaultTheme.With(overrides)` | `{ ...defaultTheme, [Kind.Attribute]: "#ff8800" }` |
+| `Theme.Style(kind)`, `highlight.ParseStyle(s)` | `styleFor(theme, kind)`, `parseStyle(s)` |
+| `highlight.Style`, `Style.IsZero()` | `Style`, a plain object of `bold`, `italic`, `underline`, `dim`, `foreground` and `background`; a style that sets nothing equals `parseStyle("")` |
+| `highlight.Colour` | the `foreground` and `background` strings of a `Style`: a named colour such as `"bright-red"`, or `"#rrggbb"` |
+| `Theme.Validate()` and `errors.InvalidStyleError` | `validateTheme(theme)`, throwing one `InvalidStyleError` naming every unknown word in `words` |
+| `highlight.WriteCSS(w, theme)` | `css(theme)`; the default ships as `xcl-lang/xcl.css` |
+| `highlight.For(w)` | `forStream(stream)` |
+| `highlight.LoadVSCodeTheme(r)` and `errors.InvalidThemeError` | `await loadVSCodeTheme(pathOrBytes)`, converted by the engine, and `InvalidThemeError` |
+
+## Logging
+
+| Go | TypeScript |
+|---|---|
+| `events.SlogHandler(logger)` | `events.toLogger(logger, { order })`: the same levels, messages and field names, for any logger with `debug`, `info`, `warn` and `error`; fields first, as pino takes them, or `order: "message-first"`, as winston takes them |
+| zap's `errorVerbose` from `%+v` | the enumerable `problems` and `report`, which pino's `err` serializer and winston's `format.errors()` carry with no configuration |
+
+Go's pretty logger is an example (`example/prettylog`) that only its examples import; this package's is part of `xcl-lang`. The parity suite compares what the two write for every fixture whose apply succeeds, apart from times and durations.
+
+| Go (`example/prettylog`) | TypeScript (`prettylog`) |
+|---|---|
+| `prettylog.Handler(w, level)` | `prettylog.handler({ out, level, logger, order, formatter })`: the same lines, and also a configuration mistake's report beneath its error line at every level, and one line saying how to turn entity data on when it is off |
+| `prettylog.LevelFromEnv()` | `prettylog.levelFromEnv()`, `"debug"`, `"info"`, `"warn"` or `"error"` |
+| `prettylog.LevelEnv` | `prettylog.LEVEL_ENV` (`"XCL_LOG_LEVEL"`) |
+| `slog.Level` | `LogLevel`, one of the four level names |
 
 ## Not applicable
 
@@ -99,3 +135,5 @@ Printing errors, resources and diffs, themes, formatters and the pretty logger b
 | `As[T](entity)` | `find(App, address)` is the conversion, and `entity.as(App)` converts a generic entity. |
 | `GetResources()` / `ResourceCount()` | Deprecated in Go in favour of `Entities()` / `EntityCount()`. |
 | `highlight.Tokenize(text)` | The package never lexes configuration: labelled text comes from the engine. |
+| `Kind.Scope()` | Scopes are used only to convert a VS Code theme, which the engine does for `loadVSCodeTheme`. |
+| `Colour.Hex()` | The formats write a named colour as hex through the fixed palette themselves; a theme names colours as strings and never needs the hex form. |

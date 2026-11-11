@@ -13,10 +13,13 @@
  * process, and destroy. Temporary paths are replaced by `<tmp>` and the fixture
  * directory by `<fixture>`.
  *
- * Go's record also holds what a person is shown, which belongs to printing and
- * which this program does not write: `printed_validate`, `printed_apply`,
- * `printed_entities`, `printed_diff_before`, `printed_diff_changed`, `log` and
- * `pretty_log`.
+ * The record also holds what a person is shown: the report `formatError` gives
+ * for the validate and apply errors (`printed_validate`, `printed_apply`), the
+ * text `printEntity` prints for every entity with its computed values
+ * (`printed_entities`), the change summaries `printDiff` prints
+ * (`printed_diff_before`, `printed_diff_changed`), every event written through
+ * `events.toLogger` (`log`), and, for a fixture whose apply succeeds, what the
+ * pretty logger writes for a fresh apply at info (`pretty_log`).
  *
  * Go's record is snake_case, as the engine writes it. Entities come from the
  * engine's JSON as it was sent, the diff from `Diff.raw`, and outputs from
@@ -42,7 +45,22 @@ import { parseArgs, promisify } from "node:util";
 
 import { entityNameOf } from "../../src/decorators.js";
 import { GenericEntity, sourceOf, toSnake } from "../../src/hydrate.js";
-import { createConfig, LocalRegistry, XclError, type Config, type Diff, type EncodeOptions, type EntityClass } from "../../src/index.js";
+import {
+  createConfig,
+  EventDataLevel,
+  events,
+  formatError,
+  LocalRegistry,
+  prettylog,
+  printDiff,
+  XclError,
+  type Config,
+  type ConfigOptions,
+  type Diff,
+  type EncodeOptions,
+  type EntityClass,
+  type LevelLogger,
+} from "../../src/index.js";
 import { FIXTURES, HAND_BUILT, ParityFunctions } from "./types.js";
 
 type JsonObject = Record<string, unknown>;
@@ -99,7 +117,7 @@ function readFixture(directory: string): Fixture {
 }
 
 /** The Config a fixture runs with, exactly as the Go program builds it. */
-async function newConfig(fixture: Fixture, plugins: string, stateDir: string, tmp: string): Promise<Config> {
+async function newConfig(fixture: Fixture, plugins: string, stateDir: string, tmp: string, extra: Pick<ConfigOptions, "onEvent" | "eventData"> = {}): Promise<Config> {
   const local = new LocalRegistry();
   local.register(...(FIXTURES[fixture.name] as readonly EntityClass[]));
   local.registerFunctions(new ParityFunctions());
@@ -113,7 +131,51 @@ async function newConfig(fixture: Fixture, plugins: string, stateDir: string, tm
     variables[key] = typeof value === "string" ? value.replaceAll("<tmp>", tmp) : value;
   }
 
-  return createConfig({ registries: [local], statePath: stateDir, variables });
+  return createConfig({ registries: [local], statePath: stateDir, variables, ...extra });
+}
+
+/** One record written through the logging bridge: its level, message, resource and operation. */
+export interface LogEntry {
+  level: string;
+  message: string;
+  resource: string;
+  operation: string;
+}
+
+/** A logger with the four level methods that keeps every record, as the Go program's logRecorder does. */
+class LogRecorder implements LevelLogger {
+  readonly entries: LogEntry[] = [];
+
+  #record(level: string, fields: unknown, message: unknown): void {
+    const named = fields as Record<string, unknown>;
+    this.entries.push({ level, message: String(message), resource: String(named.resource ?? ""), operation: String(named.operation ?? "") });
+  }
+
+  debug(fields: unknown, message: unknown): void {
+    this.#record("debug", fields, message);
+  }
+
+  info(fields: unknown, message: unknown): void {
+    this.#record("info", fields, message);
+  }
+
+  warn(fields: unknown, message: unknown): void {
+    this.#record("warn", fields, message);
+  }
+
+  error(fields: unknown, message: unknown): void {
+    this.#record("error", fields, message);
+  }
+}
+
+/** A writer collecting what is written to it. */
+function collector(): { text: string; write(chunk: string): void } {
+  return {
+    text: "",
+    write(chunk: string): void {
+      this.text += chunk;
+    },
+  };
 }
 
 /** Calls `operation` and gives what it returned, or the engine error it threw. */
@@ -177,26 +239,44 @@ export async function run(fixtureDir: string, plugins: string, options: RunOptio
     const n = new Normaliser({ tmp, fixture: fixture.dir });
     const record: JsonObject = {};
 
-    config = await newConfig(fixture, plugins, stateDir, tmp);
+    // every event the configuration emits is written through the package's
+    // logging bridge to a logger that keeps each record, at every level
+    const logs = new LogRecorder();
+
+    config = await newConfig(fixture, plugins, stateDir, tmp, { onEvent: events.toLogger(logs) });
     const opened = config;
 
     const [, validateError] = await attempt(() => opened.validate(fixture.main));
     record.validate = n.outcome(validateError);
+    record.printed_validate = n.printedError(validateError);
 
     const [before, beforeError] = await attempt(() => opened.diff(fixture.main));
     record.diff_before = n.diff(before, beforeError);
+    record.printed_diff_before = n.printedDiff(before, beforeError);
 
     const [, applyError] = await attempt(() => opened.apply(fixture.main));
     record.apply = n.outcome(applyError);
+    record.printed_apply = n.printedError(applyError);
     record.entities = n.entities(await rawEntities(config));
     record.outputs = n.value(await snakeCaseOutputs(config));
     record.state = n.state(stateDir);
     record.encode = await encodeSection(config, fixture, stateDir, n, options);
+    record.printed_entities = await printedEntitiesSection(config, n);
 
     if (fixture.changed !== undefined) {
       const changedPath = fixture.changed;
       const [changed, changedError] = await attempt(() => opened.diff(changedPath));
       record.diff_changed = n.diff(changed, changedError);
+      record.printed_diff_changed = n.printedDiff(changed, changedError);
+    }
+
+    record.log = n.log(logs.entries);
+
+    // Go's example writes no report beneath an error and no guidance, so only
+    // a fixture whose apply succeeds is compared
+    record.pretty_log = null;
+    if (applyError === undefined) {
+      record.pretty_log = await prettyLog(fixture, plugins, tmp, n);
     }
 
     if (applyError === undefined) {
@@ -216,6 +296,41 @@ export async function run(fixtureDir: string, plugins: string, options: RunOptio
     await config?.close();
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * What the pretty logger writes for a fresh apply at info, as the Go program's
+ * prettyLog records Go's example: the fixture applied again, in a state
+ * directory of its own, with processed event data, into a buffer.
+ */
+async function prettyLog(fixture: Fixture, plugins: string, tmp: string, n: Normaliser): Promise<unknown> {
+  const out = collector();
+  const config = await newConfig(fixture, plugins, join(tmp, "pretty-state"), tmp, { onEvent: prettylog.handler({ out, level: "info" }), eventData: EventDataLevel.Processed });
+  try {
+    const [, error] = await attempt(() => config.apply(fixture.main));
+    if (error !== undefined) {
+      return n.outcome(error);
+    }
+  } finally {
+    await config.close();
+  }
+  return n.prettyGroups(out.text);
+}
+
+/** The text `printEntity` prints, with computed values, for every entity that is not a builtin, by address; a failure is its outcome. */
+async function printedEntitiesSection(config: Config, n: Normaliser): Promise<JsonObject> {
+  const printed: JsonObject = {};
+  for (const raw of await rawEntities(config)) {
+    const meta = metaOfRecord(raw);
+    if (BUILTIN_TYPES.has(meta.type)) {
+      continue;
+    }
+    const address = String(meta.id ?? "");
+    const out = collector();
+    const [, error] = await attempt(async () => config.printEntity(await config.find(address), { out, includeComputed: true }));
+    printed[address] = error !== undefined ? n.outcome(error) : n.text(out.text);
+  }
+  return printed;
 }
 
 /** The four encode choices, by the name the record gives each, in the order their names are joined in a combination's name. */
@@ -474,6 +589,66 @@ export class Normaliser {
       return this.outcome(error);
     }
     return this.text(text as string);
+  }
+
+  /** The report `formatError` gives for an error, plain and wrapped at 80 columns, or an empty string for none. */
+  printedError(error: XclError | undefined): string {
+    if (error === undefined) {
+      return "";
+    }
+    return this.text(formatError(error));
+  }
+
+  /** The change summary `printDiff` prints for a diff, or the outcome the diff failed with. */
+  printedDiff(diff: Diff | undefined, error: XclError | undefined): unknown {
+    if (error !== undefined) {
+      return this.outcome(error);
+    }
+    const out = collector();
+    printDiff(diff as Diff, { out });
+    return this.text(out.text);
+  }
+
+  /**
+   * The logged events with paths replaced in their messages, sorted as the Go
+   * program sorts them: by operation, resource, level and message, so the order
+   * the events arrived in does not count.
+   */
+  log(entries: readonly LogEntry[]): JsonObject[] {
+    const rendered = entries.map((entry) => ({ level: entry.level, message: this.text(entry.message), resource: entry.resource, operation: entry.operation }));
+    return rendered.sort(
+      (left, right) => compare(left.operation, right.operation) || compare(left.resource, right.resource) || compare(left.level, right.level) || compare(left.message, right.message),
+    );
+  }
+
+  /**
+   * Pretty logger output as sorted groups, as the Go program's prettyGroups
+   * gives them. A line that does not start with a space starts a group and the
+   * lines beneath it join it. Colour codes are removed, each group's leading
+   * time is replaced by `<time>` and every duration by `<duration>`, and run
+   * paths are replaced; sorting keeps entities created concurrently from
+   * reordering the groups.
+   */
+  prettyGroups(text: string): string[] {
+    const groups: string[] = [];
+    let current: string[] | undefined;
+    for (const raw of text.replace(/\x1b\[[0-9;]*m/g, "").replace(/\n+$/, "").split("\n")) {
+      if (raw === "") {
+        continue;
+      }
+      if (!raw.startsWith(" ")) {
+        if (current !== undefined) {
+          groups.push(this.text(current.join("\n")));
+        }
+        current = [raw.replace(/^\d{1,2}:\d{2}(AM|PM) /, "<time> ").replace(/duration=\S+/g, "duration=<duration>")];
+        continue;
+      }
+      current?.push(raw);
+    }
+    if (current !== undefined) {
+      groups.push(this.text(current.join("\n")));
+    }
+    return groups.sort(compare);
   }
 
   /** Any value through JSON, with the run's paths replaced. */

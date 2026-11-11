@@ -143,9 +143,166 @@ import { interruptSignal } from "xcl-lang";
 await config.apply("./infra", { signal: interruptSignal() });
 ```
 
+## Printing errors
+
+A configuration mistake comes back as a `ConfigError` holding the engine's report: the summary, where it is, the numbered source lines with the fault marked, and the detail. The report is the one Go prints, byte for byte.
+
+```ts
+import { forStream, formatError, printError } from "xcl-lang";
+
+try {
+  await config.apply("./infra");
+} catch (err) {
+  printError(err, { formatter: forStream(process.stderr) });
+  const text = formatError(err); // the same report as a string
+  process.exitCode = 1;
+}
+```
+
+```text
+Error: Unsupported block type
+
+  on infra/main.xcl line 7, in resource.recording.two, field nope[0]:
+     5 | 
+     6 | resource "recording" "two" {
+     7 |   nope {
+     8 |     a = 1
+     9 |   }
+
+Blocks of type "nope" are not expected here.
+```
+
+`printError` writes to `process.stderr` unless `out` names another writer, and `formatError` returns what it would write. Output is plain text unless `formatter` asks for colour. Detail wraps at 80 columns; `width` chooses another width, and `0` or `null` turns wrapping off. Any other error prints its message, and any other value its text form, so printing never throws.
+
+You see the report with no printing code at all:
+
+- `console.error(err)` shows the report, in colour when Node's console colours that stream.
+- An uncaught error, a thrown one or a rejected top-level `await`, shows the report as plain text. It is carried in the error's `stack`, between the first line and the frames, and the package installs no process listener.
+- A JSON logger's standard error handling carries it: `problems` (each with `file`, `line`, `column`, `summary`, `detail`, `entity` and `field`) and `report` (the plain report) are enumerable, so pino's `err` serializer and winston's `format.errors()` log them with no configuration.
+
+`err.message` stays one line, and `err.tokens` is the report as labelled text.
+
+## Printing entities and change summaries
+
+```ts
+import { printDiff } from "xcl-lang";
+
+await config.printEntity(await config.find("app.web"), { includeComputed: true });
+printDiff(await config.diff("./infra"));
+```
+
+`printEntity` takes the same four encoding choices as `encodeEntity` (`includeComputed`, `includeEmpty`, `revealSensitive` and `showReferences`) and writes to `process.stdout`, as `printDiff` does. Both take `out`, `formatter` and `theme`, as errors do.
+
+## Formats and themes
+
+Every printed output is labelled text, which a format turns into plain text, terminal colour, HTML or SVG:
+
+| Format | Writes |
+|---|---|
+| `plain` | the text, the default |
+| `terminal` | the text in terminal colour |
+| `html` | a `<pre class="xcl">` block with a class per kind, such as `xcl-attribute` |
+| `htmlInline` | the same markup styled with `style` attributes, for places a stylesheet cannot reach |
+| `svg` | a standalone image |
+
+`forStream(stream)` picks `terminal` for a terminal when `NO_COLOR` is unset, and `plain` otherwise. The package never colours output unless you choose a colour format or ask for one chosen from the stream.
+
+A theme gives a style string for each kind of text it changes; a kind it leaves out takes its category's style, then plain text's. Extend the default with a spread:
+
+```ts
+import { defaultTheme, Kind, loadVSCodeTheme, printError, terminal, validateTheme } from "xcl-lang";
+
+const theme = { ...defaultTheme, [Kind.Attribute]: "bold #ff8800", [Kind.LineComment]: "italic bright-black" };
+validateTheme(theme); // throws InvalidStyleError naming any word it does not recognise
+
+printError(err, { formatter: terminal, theme });
+
+const fromVSCode = { ...defaultTheme, ...(await loadVSCodeTheme("my-theme.json")) };
+```
+
+A style string holds `bold`, `italic`, `underline`, `dim`, a foreground colour (`#rrggbb` or a named colour such as `bright-red`) and `bg:#rrggbb`, separated by spaces. Printing with a word the theme check would report skips that word rather than failing.
+
+## Stylesheets
+
+`css(theme)` generates a stylesheet for the classes the `html` format writes, the same one Go generates. The package ships the default as `xcl-lang/xcl.css`, so a site can link or bundle it:
+
+```ts
+import { writeFileSync } from "node:fs";
+import { css, defaultTheme, Kind } from "xcl-lang";
+
+writeFileSync("xcl.css", css({ ...defaultTheme, [Kind.Attribute]: "#ff8800" }));
+```
+
+```css
+@import "xcl-lang/xcl.css";
+```
+
+## Custom formats
+
+A format is a function, given the whole labelled text at once, the theme, and the writer to write to. Use it anywhere a built-in format is accepted:
+
+```ts
+import { cssClassOf, type Formatter } from "xcl-lang";
+
+const bracketed: Formatter = (out, _theme, tokens) => {
+  for (const token of tokens) {
+    out.write(token.kind === 0 ? token.text : `[${cssClassOf(token.kind)}:${token.text}]`);
+  }
+};
+
+printError(err, { formatter: bracketed });
+```
+
+The labelled text itself is `err.tokens`, `await config.entityTokens(entity)` and `diff.tokens`. Each token carries its `kind`, a `Kind` or a number from a newer engine, and the tokens' texts join to the plain output.
+
+## Logging
+
+`events.toLogger` sends every event to a logger of your own, at the levels and with the messages Go's logging bridge uses, with the event's details as fields:
+
+```ts
+import pino from "pino";
+import { createConfig, events } from "xcl-lang";
+
+await using config = await createConfig({ onEvent: events.toLogger(pino()) });
+// winston takes the message first:
+// onEvent: events.toLogger(winstonLogger, { order: "message-first" })
+```
+
+A log event is written at its own level with its own message. Every other event is written as `<operation> <phase>`, at error for `error`, warn for `blocked` and info otherwise. The fields are `source`, `operation`, `phase`, `resource`, `type`, `file`, `duration` (milliseconds), `error`, then the event's details.
+
+## Pretty logger
+
+The pretty logger shows what xcl is doing, in one line of setup: each event a readable line, each created entity's configuration beneath its line, and each configuration mistake's report beneath its error.
+
+```ts
+import { createConfig, EventDataLevel, prettylog } from "xcl-lang";
+
+await using config = await createConfig({
+  onEvent: prettylog.handler({ level: prettylog.levelFromEnv() }),
+  eventData: EventDataLevel.Processed, // puts each created entity on its event
+});
+```
+
+```text
+3:04PM INFO create success source=core operation=create phase=success resource=resource.recording.one type=recording.one duration=1.2ms
+  resource "recording" "one" {
+    value  = "a"
+    output = "one-a" # set by the provider
+  }
+```
+
+- `out` is the stream, by default `process.stderr`, and `level` is the minimum level, `"info"` when not chosen.
+- `prettylog.levelFromEnv()` reads `XCL_LOG_LEVEL` (`debug`, `info`, `warn` or `error`, in any case; anything else means info). The variable is read only when you call it.
+- Configuration appears at info and below. Above info only events at the level are written, though a configuration mistake's report still appears beneath its error line.
+- Without `eventData: EventDataLevel.Processed`, one line says how to turn it on.
+- An entity whose configuration cannot be shown gets one warning line, and variables, outputs and modules are skipped.
+- Colour follows the stream, as `forStream` chooses it; `formatter` chooses another format.
+- `{ logger }` routes the lines through a logger of your own instead of a stream, with `order` as for `events.toLogger`.
+- A line and everything beneath it go out in one write, and nothing waits on the stream, so the logger never holds up or fails an operation.
+
 ## More
 
-- Events, state stores and encryption: the `onEvent`, `stateStore` and `stateMask` options of `createConfig`.
+- Events, state stores and encryption: the `onEvent`, `eventData`, `stateStore` and `stateMask` options of `createConfig`.
 - Errors are classes, one per kind, all `instanceof XclError`.
 - [`PARITY.md`](PARITY.md) lists every Go operation and lookup with its TypeScript equivalent.
 

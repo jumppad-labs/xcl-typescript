@@ -1,0 +1,10 @@
+resource "recording" "one" {
+  log = "/never/written/log.jsonl"
+  value = "a"
+}
+
+resource "recording" "two" {
+  nope {
+    a = 1
+  }
+}

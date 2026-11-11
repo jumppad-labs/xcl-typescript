@@ -9,6 +9,7 @@ import type { MessageInitShape, MessageShape } from "@bufbuild/protobuf";
 
 import { Diff } from "../diff.js";
 import { Event } from "../events.js";
+import { tokensFromProto } from "../highlight/kinds.js";
 import type { ClassMap } from "../hydrate.js";
 import { CancelledError, fromProto, InvalidArgumentError } from "../errors.js";
 import { isSensitive } from "../sensitive.js";
@@ -117,7 +118,7 @@ export class Operation {
       }
       throw error;
     }
-    return this.finished.diffJson.length > 0 ? Diff.fromJSON(this.finished.diffJson) : undefined;
+    return this.finished.diffJson.length > 0 ? Diff.fromJSON(this.finished.diffJson, tokensFromProto(this.finished.diffTokens)) : undefined;
   }
 
   /** Queues an event for the handler. A handler's exception is reported as a warning and affects nothing else. */

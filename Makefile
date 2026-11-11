@@ -31,6 +31,7 @@ plugins:
 
 # test runs every suite; the integration and parity suites need make engine
 # and make plugins, and XCL_SRC to find the fixtures. test-unit needs no engine.
+# Both build the package first, so the shipped xcl.css exists.
 test:
 	XCL_CORE_PATH="$${XCL_CORE_PATH:-$(CURDIR)/build/engine/xcl-core$(EXE)}" XCL_SRC="$(abspath $(XCL_SRC))" npm test
 

@@ -1,5 +1,6 @@
 /** Diffs: what an apply would do. */
 
+import type { Token } from "./highlight/kinds.js";
 import { diffPath } from "./hydrate.js";
 
 /** The value of a setting only known once the apply has run. */
@@ -65,15 +66,18 @@ export class Diff {
   readonly resources: readonly ResourceDiff[];
   /** The engine's JSON for this diff, as Go writes it. */
   readonly raw: Readonly<Record<string, unknown>>;
+  /** The change summary Go prints, as labelled text. */
+  readonly tokens: readonly Token[];
 
-  private constructor(summary: Summary, resources: readonly ResourceDiff[], raw: Readonly<Record<string, unknown>>) {
+  private constructor(summary: Summary, resources: readonly ResourceDiff[], raw: Readonly<Record<string, unknown>>, tokens: readonly Token[]) {
     this.summary = summary;
     this.resources = resources;
     this.raw = raw;
+    this.tokens = tokens;
   }
 
-  /** @internal The diff the engine sent as JSON. */
-  static fromJSON(data: Uint8Array): Diff {
+  /** @internal The diff the engine sent as JSON, with its change summary as labelled text. */
+  static fromJSON(data: Uint8Array, tokens: readonly Token[] = []): Diff {
     const raw = (data.length > 0 ? JSON.parse(new TextDecoder().decode(data)) : {}) as JsonObject;
     const summary = (raw.summary ?? {}) as JsonObject;
     const resources = ((raw.resources ?? []) as JsonObject[]).map(resourceOf);
@@ -87,6 +91,7 @@ export class Diff {
       },
       resources,
       raw,
+      tokens,
     );
   }
 

@@ -11,7 +11,13 @@
  * never by the engine.
  */
 
+import { inspect } from "node:util";
+
+import { terminal } from "./highlight/formatters.js";
+import { goName, tokensFromProto, type Token } from "./highlight/kinds.js";
+import { defaultTheme } from "./highlight/theme.js";
 import type { Error as ErrorMessage } from "./internal/core/xcl/core/v1/core_pb.js";
+import { plainReport, render } from "./internal/render.js";
 
 /** One problem in configuration, positioned where it was found. */
 export interface Problem {
@@ -60,6 +66,10 @@ export class XclError extends Error {
   readonly causes: readonly XclError[];
   /** Every positioned configuration problem the error holds, in order. */
   readonly problems: readonly Problem[];
+  /** The engine's report as labelled text; empty for an error holding no report. Not enumerable, since nothing but printing wants it. */
+  declare readonly tokens: readonly Token[];
+  /** The report as plain text, wrapped at 80 columns; present only on an error holding a report. */
+  declare readonly report?: string;
 
   constructor(message: string, options: XclErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
@@ -70,6 +80,28 @@ export class XclError extends Error {
     this.problems = problemsOf(this);
     // a standard Error's message is an own property that is not enumerable
     Object.defineProperty(this, "message", { value: message, enumerable: true, writable: true, configurable: true });
+    Object.defineProperty(this, "tokens", { value: [], enumerable: false, writable: true, configurable: true });
+  }
+
+  /**
+   * How `console.error` and `util.inspect` show the error: its stack, which
+   * holds the report, with the report in terminal colour when Node's `colors`
+   * option asks for it. An error holding no report shows as Node shows any
+   * error. An uncaught error never reaches this: Node's fatal path turns custom
+   * inspection off, which is why the plain report is also in `stack`.
+   */
+  [inspect.custom](_depth: number, options: { colors?: boolean }): unknown {
+    if (this.tokens.length === 0) {
+      return this;
+    }
+    const stack = this.stack ?? "";
+    if (options.colors !== true || this.report === undefined) {
+      return stack;
+    }
+    const coloured = render(this.tokens, terminal, defaultTheme, 80).replace(/\n+$/, "");
+    // the report starts after the first line, which may hold the same text
+    const start = stack.indexOf(this.report, stack.indexOf("\n") + 1);
+    return start === -1 ? stack : stack.slice(0, start) + coloured + stack.slice(start + this.report.length);
   }
 }
 
@@ -274,6 +306,40 @@ export class EngineExitedError extends XclError {
   }
 }
 
+/** One style word a style does not understand. */
+export interface InvalidStyleWord {
+  /** The kind whose style holds the word. */
+  readonly kind: number;
+  /** The whole style string. */
+  readonly style: string;
+  /** The word. */
+  readonly word: string;
+}
+
+function goQuote(text: string): string {
+  return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/**
+ * A theme holds style words a style does not understand; `words` names each
+ * one, in the order of the kinds and then of the words. It is thrown by
+ * `validateTheme`, never by the engine. Printing with such a theme still works:
+ * the words are skipped.
+ */
+export class InvalidStyleError extends XclError {
+  static override readonly code: string = "invalid_style";
+
+  /** Each unknown word, with the kind and style holding it. */
+  readonly words: readonly InvalidStyleWord[];
+
+  constructor(words: readonly InvalidStyleWord[]) {
+    super(words.map(({ kind, style, word }) => `style ${goQuote(style)} for ${goName(kind)}: unknown word ${goQuote(word)}`).join("; "), {
+      details: { words: words.map(({ word }) => word).join(" ") },
+    });
+    this.words = [...words];
+  }
+}
+
 const STATUS_REASONS: Readonly<Record<number, string>> = {
   [-1]: "unknown method",
   [-2]: "the request did not parse",
@@ -336,10 +402,41 @@ const BY_CODE: ReadonlyMap<string, new (message: string, options?: XclErrorOptio
 export function fromProto(error: ErrorMessage): XclError {
   const causes = error.causes.map(fromProto);
   const known = BY_CODE.get(error.code);
-  if (known === undefined) {
-    return new XclError(error.message, { code: error.code, details: error.details, causes });
+  const message = oneLine(error.message);
+  const built = known === undefined ? new XclError(message, { code: error.code, details: error.details, causes }) : new known(message, { details: error.details, causes });
+  attachReport(built, tokensFromProto(error.report));
+  return built;
+}
+
+/** A message on one line: Go's `ConfigError` text has one line per problem, which a log wants as one. */
+function oneLine(message: string): string {
+  return message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .join("; ");
+}
+
+/**
+ * Puts a report on an error built from the engine's message. It runs once the
+ * error exists, so the first line of `stack` carries the subclass's name, which
+ * V8 captures from the constructor before the name is set.
+ */
+function attachReport(error: XclError, tokens: readonly Token[]): void {
+  if (tokens.length === 0) {
+    return;
   }
-  return new known(error.message, { details: error.details, causes });
+  const report = plainReport(tokens);
+  Object.defineProperty(error, "tokens", { value: tokens, enumerable: false, writable: true, configurable: true });
+  // An own enumerable accessor rather than a data property: JSON.stringify,
+  // Object.assign, pino's err serializer and winston's format.errors() all copy
+  // it, while Node's uncaught-error output shows [Getter] instead of printing
+  // the report a second time as an escaped, quoted string.
+  Object.defineProperty(error, "report", { get: () => report, enumerable: true, configurable: true });
+  const stack = error.stack ?? "";
+  const frames = stack.indexOf("\n    at ");
+  const header = error.message === "" ? error.name : `${error.name}: ${error.message}`;
+  error.stack = `${header}\n${report}${frames === -1 ? "" : stack.slice(frames)}`;
 }
 
 function problemsOf(error: XclError): Problem[] {

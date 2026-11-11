@@ -14,11 +14,11 @@ const SLOW = `resource "slow" "one" {
 }
 `;
 
-/** Runs a slow apply beside a monitored timer and an HTTP server answering requests. */
-function scenario(path: string, state: string): string {
+/** Runs a slow apply beside a monitored timer and an HTTP server answering requests, with the pretty logger on when asked. */
+function scenario(path: string, state: string, prettyLog = false): string {
   return `import { createServer } from "node:http";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { createConfig, LocalRegistry } from ${JSON.stringify(SDK_MODULE)};
+import { createConfig, EventDataLevel, LocalRegistry, prettylog } from ${JSON.stringify(SDK_MODULE)};
 
 const server = createServer((request, response) => {
   response.end("ok");
@@ -28,7 +28,7 @@ const url = "http://127.0.0.1:" + server.address().port + "/";
 
 const local = new LocalRegistry();
 local.registerExternalPlugin(${JSON.stringify(pluginPath(SLOW_PLUGIN))});
-const config = await createConfig({ registries: [local], statePath: ${JSON.stringify(state)} });
+const config = await createConfig({ registries: [local], statePath: ${JSON.stringify(state)}${prettyLog ? ", onEvent: prettylog.handler(), eventData: EventDataLevel.Processed" : ""} });
 
 const monitor = monitorEventLoopDelay({ resolution: 10 });
 monitor.enable();
@@ -76,4 +76,15 @@ test("an HTTP server in the same process answers requests throughout a slow appl
   assert.equal(script.exitCode, 0, script.stderr);
   assert.equal(Number(script.values("failed:")[0]), 0);
   assert.ok(Number(script.values("answered:")[0]) >= 25, `only ${String(script.values("answered:")[0])} requests were answered during a 2 s apply`);
+});
+
+test("with the pretty logger on, a timer's 99th-percentile delay stays under 50 ms during a slow apply", { skip: needsPlugin }, async (t) => {
+  const directory = testDirectory(t);
+  const script = await runScenario(scenario(writeConfig(directory, "main.xcl", SLOW), `${directory}/state`, true), directory);
+
+  assert.equal(script.exitCode, 0, script.stderr);
+  assert.ok(script.stderr.includes("create success"), script.stderr);
+  const p99 = Number(script.values("p99:")[0]);
+  assert.ok(p99 > 0, `the monitor recorded no delay: ${String(script.values("p99:")[0])}`);
+  assert.ok(p99 < 50, `the event loop's 99th-percentile delay was ${p99} ms`);
 });

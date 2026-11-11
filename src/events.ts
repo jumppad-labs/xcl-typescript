@@ -6,6 +6,7 @@ import type { EntityClass } from "./decorators.js";
 import { fromProto, type XclError } from "./errors.js";
 import { hydrate, parseRecord, typedEntity, type ClassMap } from "./hydrate.js";
 import { EventDataLevel as EventDataLevelMessage, type EventSchema } from "./internal/core/xcl/core/v1/core_pb.js";
+import { eventFields, eventLevel, eventMessage } from "./internal/logbridge.js";
 
 /** What resource data lifecycle events carry. */
 export const EventDataLevel = {
@@ -110,4 +111,53 @@ function metaOf(json: Uint8Array): Record<string, unknown> {
   } catch {
     return { raw: text };
   }
+}
+
+/**
+ * Any logger with the four level methods, such as pino, winston or the
+ * console. Each method takes the fields and the message in the order the
+ * logger expects.
+ */
+export interface LevelLogger {
+  /** Writes at debug. */
+  debug(...args: unknown[]): unknown;
+  /** Writes at info. */
+  info(...args: unknown[]): unknown;
+  /** Writes at warn. */
+  warn(...args: unknown[]): unknown;
+  /** Writes at error. */
+  error(...args: unknown[]): unknown;
+}
+
+/** What `toLogger` takes. */
+export interface ToLoggerOptions {
+  /** Whether the logger takes fields then message, as pino does and the default, or message then fields, as winston does. */
+  order?: "fields-first" | "message-first";
+}
+
+/**
+ * An `onEvent` handler writing each event to `logger` as Go's
+ * `events.SlogHandler` writes it to slog. A log event is written at its own
+ * level with its own message; every other event as `<operation> <phase>`, at
+ * error for phase `error`, warn for `blocked` and info otherwise. The fields
+ * carry Go's names: `source`, `operation`, `phase`, `resource`, `type`, `file`,
+ * `duration` (in milliseconds), `error`, then the event's details by key.
+ *
+ * ```ts
+ * const cfg = await createConfig({ onEvent: events.toLogger(pino()) });
+ * const other = await createConfig({ onEvent: events.toLogger(winstonLogger, { order: "message-first" }) });
+ * ```
+ */
+export function toLogger(logger: LevelLogger, options: ToLoggerOptions = {}): (event: Event) => void {
+  const messageFirst = options.order === "message-first";
+  return (event) => {
+    const level = eventLevel(event);
+    const message = eventMessage(event);
+    const fields = eventFields(event);
+    if (messageFirst) {
+      logger[level](message, fields);
+    } else {
+      logger[level](fields, message);
+    }
+  };
 }

@@ -20,9 +20,6 @@ import { parityFixturesDirectory } from "./run.js";
 const PARITY_PROGRAM = `parity${process.platform === "win32" ? ".exe" : ""}`;
 const RUN_NODE = fileURLToPath(new URL("./run.js", import.meta.url));
 
-/** The keys of Go's record that belong to printing, which this package does not have yet. */
-const PRINTING_KEYS = ["printed_validate", "printed_apply", "printed_entities", "printed_diff_before", "printed_diff_changed", "log", "pretty_log"];
-
 function missingFixtures(): string | false {
   const directory = parityFixturesDirectory();
   if (!existsSync(directory)) {
@@ -85,14 +82,9 @@ function firstDifference(left: unknown, right: unknown, path = ""): Difference |
   return undefined;
 }
 
-/** A record without the keys that belong to printing. */
-function withoutPrinting(record: JsonObject): JsonObject {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => !PRINTING_KEYS.includes(key)));
-}
-
-/** Throws naming the fixture and the first path where the two records differ, ignoring the printing keys. */
+/** Throws naming the fixture and the first path where the two records differ, with no key left out. */
 function assertSameRecord(name: string, go: JsonObject, node: JsonObject): void {
-  const found = firstDifference(withoutPrinting(go), withoutPrinting(node));
+  const found = firstDifference(go, node);
   if (found !== undefined) {
     const [path, left, right] = found;
     assert.fail(`fixture ${name}: the records differ at ${path}: go=${JSON.stringify(left)} node=${JSON.stringify(right)}`);
@@ -193,15 +185,21 @@ test("a key only Go has fails naming the fixture and the key", () => {
   });
 });
 
-test("records equal apart from the printing keys pass", () => {
-  const go = { apply: { ok: true }, printed_validate: "", printed_apply: "", printed_entities: {}, printed_diff_before: "", printed_diff_changed: "", log: [], pretty_log: null };
-
-  assertSameRecord("basic_types", go, { apply: { ok: true } });
+test("a printing key only Go has fails naming the fixture and the key", () => {
+  assert.throws(() => assertSameRecord("basic_types", { apply: { ok: true }, printed_validate: "" }, { apply: { ok: true } }), {
+    message: 'fixture basic_types: the records differ at printed_validate: go="" node="<missing>"',
+  });
 });
 
-test("a difference beside the printing keys still fails", () => {
-  assert.throws(() => assertSameRecord("basic_types", { apply: { ok: true }, log: [] }, { apply: { ok: false } }), {
-    message: "fixture basic_types: the records differ at apply.ok: go=true node=false",
+test("a printed report that differs fails naming the fixture and the key", () => {
+  assert.throws(() => assertSameRecord("invalid", { printed_apply: "Error: one\n" }, { printed_apply: "Error: two\n" }), {
+    message: 'fixture invalid: the records differ at printed_apply: go="Error: one\\n" node="Error: two\\n"',
+  });
+});
+
+test("a pretty log group that differs fails naming the fixture and the group", () => {
+  assert.throws(() => assertSameRecord("outputs", { pretty_log: ["<time> INFO apply start"] }, { pretty_log: ["<time> INFO apply begin"] }), {
+    message: 'fixture outputs: the records differ at pretty_log[0]: go="<time> INFO apply start" node="<time> INFO apply begin"',
   });
 });
 
