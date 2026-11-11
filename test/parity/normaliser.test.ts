@@ -233,3 +233,49 @@ test("the combination of no choice turns all four off", () => {
 
   assert.deepEqual(none?.[1], { includeComputed: false, includeEmpty: false, revealSensitive: false, showReferences: false });
 });
+
+test("printedError is empty for no error", () => {
+  assert.equal(unixNormaliser().printedError(undefined), "");
+});
+
+test("printedError is an error's message and a line break when it holds no report, with paths replaced", () => {
+  assert.equal(unixNormaliser().printedError(new NotFoundError("no entity at /tmp/run/state")), "no entity at <tmp>/state\n");
+});
+
+test("printedDiff is the outcome of the error a diff failed with", () => {
+  assert.deepEqual(unixNormaliser().printedDiff(undefined, new InternalError("it broke")), { ok: false, error: { code: "internal", message: "it broke" } });
+});
+
+test("printedDiff is the change summary printed, with paths replaced", () => {
+  const diff = Diff.fromJSON(new TextEncoder().encode("{}"), [{ kind: 0, text: "log = /tmp/run/log\n" }]);
+  assert.equal(unixNormaliser().printedDiff(diff, undefined), "log = <tmp>/log\n");
+});
+
+test("log sorts by operation, resource, level and message, and replaces paths in messages", () => {
+  const entries = [
+    { level: "info", message: "create success", resource: "resource.b", operation: "create" },
+    { level: "info", message: "apply start", resource: "", operation: "apply" },
+    { level: "info", message: "create start", resource: "resource.a", operation: "create" },
+    { level: "debug", message: "read /tmp/run/x", resource: "resource.a", operation: "create" },
+  ];
+  assert.deepEqual(unixNormaliser().log(entries), [
+    { level: "info", message: "apply start", resource: "", operation: "apply" },
+    { level: "debug", message: "read <tmp>/x", resource: "resource.a", operation: "create" },
+    { level: "info", message: "create start", resource: "resource.a", operation: "create" },
+    { level: "info", message: "create success", resource: "resource.b", operation: "create" },
+  ]);
+});
+
+test("prettyGroups joins the lines beneath an event line to it and sorts the groups", () => {
+  const text = "3:04PM INFO create success resource=resource.b\n  resource \"b\" {\n  }\n3:04PM INFO apply start\n";
+  assert.deepEqual(unixNormaliser().prettyGroups(text), ["<time> INFO apply start", '<time> INFO create success resource=resource.b\n  resource "b" {\n  }']);
+});
+
+test("prettyGroups removes colour codes and replaces durations and paths", () => {
+  const text = "11:59AM \x1b[1;36mINFO\x1b[0m create success duration=1.5ms file=/work/fixture/main.xcl\n";
+  assert.deepEqual(unixNormaliser().prettyGroups(text), ["<time> INFO create success duration=<duration> file=<fixture>/main.xcl"]);
+});
+
+test("prettyGroups skips empty lines", () => {
+  assert.deepEqual(unixNormaliser().prettyGroups("\n3:04PM INFO apply start\n\n"), ["<time> INFO apply start"]);
+});

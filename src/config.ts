@@ -11,6 +11,11 @@ import { sharedTransport } from "./internal/subprocess.js";
 import type { Registry } from "./registry.js";
 import type { EntityClass } from "./decorators.js";
 import { eventDataLevelMessage, type Event, type EventDataLevel } from "./events.js";
+import { plain } from "./highlight/formatters.js";
+import { tokensFromProto, type Token } from "./highlight/kinds.js";
+import { linkEvent, type EventLink } from "./internal/event-link.js";
+import { defaultTheme } from "./highlight/theme.js";
+import type { PrintOptions } from "./print.js";
 
 /** What a configuration is created with. */
 export interface ConfigOptions {
@@ -97,11 +102,24 @@ class ConfigImpl {
   readonly #classes: ClassMap;
   readonly #handlers: Handlers;
 
-  constructor(client: Client, handle: bigint, classes: ClassMap, handlers: Handlers) {
+  constructor(client: Client, handle: bigint, classes: ClassMap, handlers: Handlers, eventData: EventDataLevel = "none") {
     this.#client = client;
     this.#handle = handle;
     this.#classes = classes;
-    this.#handlers = handlers;
+    // each event remembers, privately, the configuration delivering it, so the
+    // pretty logger can render its saved record with no configuration passed in
+    const link: EventLink = { eventData, savedEntityTokens: (record) => this.#savedEntityTokens(record) };
+    const onEvent = handlers.onEvent;
+    this.#handlers =
+      onEvent === undefined
+        ? handlers
+        : {
+            ...handlers,
+            onEvent: (event: Event) => {
+              linkEvent(event, link);
+              return onEvent(event);
+            },
+          };
   }
 
   /** Checks the configuration at `paths` is valid, calling no provider. Rejects with `ConfigError`. */
@@ -222,6 +240,24 @@ class ConfigImpl {
     return new TextDecoder().decode(response.text);
   }
 
+  /**
+   * Prints an entity as configuration text, in one call, to `process.stdout` by
+   * default, as Go's `xcl.PrintEntity` prints it, with the same four encoding
+   * choices as `encodeEntity`. The output is plain text unless `formatter`
+   * chooses another format. Refused while an operation runs.
+   */
+  async printEntity(entity: object, options: EncodeOptions & Omit<PrintOptions, "width"> = {}): Promise<void> {
+    const tokens = await this.entityTokens(entity, options);
+    (options.formatter ?? plain)(options.out ?? process.stdout, options.theme ?? defaultTheme, tokens);
+  }
+
+  /** An entity's configuration text as labelled text, the same text `encodeEntity` returns. Refused while an operation runs. */
+  async entityTokens(entity: object, options: EncodeOptions = {}): Promise<Token[]> {
+    const record = recordBytes(entity, this.#classes);
+    const response = await this.#client.call(this.#open(), "encodeEntity", { entity: record, options: encodeOptions(options), tokens: true });
+    return tokensFromProto(response.tokens);
+  }
+
   /** Releases the configuration in the engine. Closing twice is harmless. */
   async close(): Promise<void> {
     const handle = this.#handle;
@@ -234,6 +270,12 @@ class ConfigImpl {
   /** Closes the configuration when an `await using` block ends. */
   [Symbol.asyncDispose](): Promise<void> {
     return this.close();
+  }
+
+  /** A saved record as labelled text with its computed values, as the pretty logger shows it; allowed during an operation. */
+  async #savedEntityTokens(record: Uint8Array): Promise<Token[]> {
+    const response = await this.#client.call(this.#open(), "encodeSavedEntity", { entity: record, options: encodeOptions({ includeComputed: true }), tokens: true });
+    return tokensFromProto(response.tokens);
   }
 
   #result(data: Uint8Array, type: EntityClass | undefined): object {
@@ -277,6 +319,12 @@ export type Config = ConfigImpl;
 
 let sharedClient: Client | undefined;
 
+/** The client every configuration created with `createConfig` uses. @internal */
+export function sharedEngineClient(): Client {
+  sharedClient ??= new Client(sharedTransport());
+  return sharedClient;
+}
+
 function variablesJson(variables: Readonly<Record<string, unknown>>): Uint8Array {
   const named = Object.fromEntries(Object.entries(variables).map(([name, value]) => [toSnake(name), value]));
   return new TextEncoder().encode(JSON.stringify(named));
@@ -301,7 +349,7 @@ export async function createConfigWith(client: Client, options: ConfigOptions): 
     ...(options.variables !== undefined && Object.keys(options.variables).length > 0 ? { variablesJson: variablesJson(options.variables) } : {}),
   });
   const functions = new Map((options.registries ?? []).flatMap((registry) => registry.functions).map((declared) => [declared.name, declared.call]));
-  return new ConfigImpl(client, response.handle, classes, { functions, onEvent: options.onEvent, store: options.stateStore, classes });
+  return new ConfigImpl(client, response.handle, classes, { functions, onEvent: options.onEvent, store: options.stateStore, classes }, options.eventData ?? "none");
 }
 
 /**
@@ -310,6 +358,5 @@ export async function createConfigWith(client: Client, options: ConfigOptions): 
  * refuses fails here rather than on the first operation.
  */
 export function createConfig(options: ConfigOptions = {}): Promise<Config> {
-  sharedClient ??= new Client(sharedTransport());
-  return createConfigWith(sharedClient, options);
+  return createConfigWith(sharedEngineClient(), options);
 }
