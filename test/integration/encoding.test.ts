@@ -9,7 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   Attribute,
   Computed,
-  createConfig,
+  Config,
   Entity,
   Int,
   LocalRegistry,
@@ -18,7 +18,6 @@ import {
   NotRegisteredError,
   OperationInProgressError,
   Sensitive,
-  type Config,
 } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, SLOW_PLUGIN, testDirectory, writeConfig } from "../helpers/engine.js";
 
@@ -50,7 +49,7 @@ function registry(): LocalRegistry {
 async function open(t: TestContext, text: string, options: { variables?: Record<string, unknown>; local?: LocalRegistry } = {}): Promise<{ config: Config; path: string; directory: string }> {
   const directory = testDirectory(t);
   const path = writeConfig(directory, "main.xcl", text);
-  const config = await createConfig({ registries: [options.local ?? registry()], statePath: join(directory, "state"), ...(options.variables ? { variables: options.variables } : {}) });
+  const config = await new Config({ registries: [options.local ?? registry()], statePath: join(directory, "state"), ...(options.variables ? { variables: options.variables } : {}) }).setup();
   t.after(() => config.close());
   return { config, path, directory };
 }

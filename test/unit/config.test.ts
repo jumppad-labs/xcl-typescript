@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { fromBinary } from "@bufbuild/protobuf";
 
-import { createConfigWith, type Config, type ConfigOptions } from "../../src/config.js";
+import { configWith, type Config, type ConfigOptions } from "../../src/config.js";
 import type { Entity } from "../../src/hydrate.js";
 import { Diff, UNKNOWN } from "../../src/diff.js";
 import {
@@ -95,7 +95,7 @@ function engine(): FakeTransport {
 }
 
 function open(transport: FakeTransport, options: ConfigOptions = {}): Promise<Config> {
-  return createConfigWith(new Client(transport), options);
+  return configWith(new Client(transport), options).setup();
 }
 
 function onlyCall(transport: FakeTransport, method: string): RecordedCall {
@@ -201,6 +201,211 @@ test("a registration the engine refuses rejects with its class", async () => {
   const transport = engine().always("CreateConfig", () => failed("type_name_clash", "two registries declare resource.container"));
 
   await assert.rejects(open(transport), TypeNameClashError);
+});
+
+// creating on first use
+
+/** Holds the CreateConfig answer until the test gives it. */
+function holdCreate(transport: FakeTransport): { reached: Promise<void>; finish(): void } {
+  let markReached!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    markReached = resolve;
+  });
+  let finish!: () => void;
+  const answer = new Promise<CallResult>((resolve) => {
+    finish = () => resolve(ok(CreateConfigResponseSchema, { handle: HANDLE }));
+  });
+  transport.always("CreateConfig", () => {
+    markReached();
+    return answer;
+  });
+  return { reached, finish };
+}
+
+test("constructing a configuration sends nothing to the engine", () => {
+  const transport = engine();
+
+  configWith(new Client(transport));
+
+  assert.deepEqual(transport.calls, []);
+});
+
+test("the first operation creates the configuration and runs on its handle", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+
+  await config.apply("main.xcl");
+
+  assert.deepEqual(
+    transport.calls.map((call) => call.method),
+    ["GetVersion", "CreateConfig", "StartApply", "Poll"],
+  );
+  assert.equal(onlyCall(transport, "StartApply").handle, HANDLE);
+});
+
+test("the first lookup creates the configuration and runs on its handle", async () => {
+  const transport = engine().always("Find", () => entityResponse({ meta: { id: "test.item.one" } }));
+  const config = configWith(new Client(transport));
+
+  await config.find("test.item.one");
+
+  assert.equal(onlyCall(transport, "CreateConfig").handle, 0n);
+  assert.equal(onlyCall(transport, "Find").handle, HANDLE);
+});
+
+test("setup resolves to the configuration itself", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+
+  const result = await config.setup();
+
+  assert.equal(result, config);
+});
+
+test("setup creates the configuration before any operation", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+
+  await config.setup();
+
+  assert.deepEqual(
+    transport.calls.map((call) => call.method),
+    ["GetVersion", "CreateConfig"],
+  );
+});
+
+test("setup a second time creates nothing more", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+
+  await config.setup();
+  await config.setup();
+
+  assert.equal(transport.callsOf("CreateConfig").length, 1);
+});
+
+test("an operation after setup creates nothing more", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+
+  await config.setup();
+  await config.apply("main.xcl");
+
+  assert.equal(transport.callsOf("CreateConfig").length, 1);
+});
+
+test("first calls made at once share one creation", async () => {
+  const transport = engine().always("Entities", () => entitiesResponse());
+  const config = configWith(new Client(transport));
+
+  await Promise.all([config.setup(), config.entityCount(), config.entities()]);
+
+  assert.equal(transport.callsOf("CreateConfig").length, 1);
+});
+
+test("a registration the engine refuses rejects the first operation", async () => {
+  const transport = engine().always("CreateConfig", () => failed("type_name_clash", "two registries declare resource.container"));
+  const config = configWith(new Client(transport));
+
+  await assert.rejects(config.apply("main.xcl"), TypeNameClashError);
+});
+
+test("an operation refused at creation never starts", async () => {
+  const transport = engine().always("CreateConfig", () => failed("type_name_clash", "two registries declare resource.container"));
+  const config = configWith(new Client(transport));
+
+  await assert.rejects(config.apply("main.xcl"), TypeNameClashError);
+
+  assert.equal(transport.callsOf("StartApply").length, 0);
+});
+
+test("a failed creation is tried again on the next call", async () => {
+  const transport = engine().queue(
+    "CreateConfig",
+    () => failed("internal", "the engine was not ready"),
+    () => ok(CreateConfigResponseSchema, { handle: HANDLE }),
+  );
+  const config = configWith(new Client(transport));
+  await assert.rejects(config.setup());
+
+  await config.apply("main.xcl");
+
+  assert.equal(transport.callsOf("CreateConfig").length, 2);
+  assert.equal(onlyCall(transport, "StartApply").handle, HANDLE);
+});
+
+test("an operation aborted while the configuration is being created never starts", async () => {
+  const transport = engine();
+  const creation = holdCreate(transport);
+  const config = configWith(new Client(transport));
+  const controller = new AbortController();
+
+  const applying = config.apply("main.xcl", { signal: controller.signal });
+  await creation.reached;
+  controller.abort();
+  creation.finish();
+
+  await assert.rejects(applying, CancelledError);
+  assert.equal(transport.callsOf("StartApply").length, 0);
+});
+
+test("closing a configuration never created sends nothing to the engine", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+
+  await config.close();
+
+  assert.deepEqual(transport.calls, []);
+  assert.deepEqual(transport.released, []);
+});
+
+test("closing while the configuration is being created releases it once created", async () => {
+  const transport = engine();
+  const creation = holdCreate(transport);
+  const config = configWith(new Client(transport));
+
+  const settingUp = config.setup();
+  await creation.reached;
+  const closing = config.close();
+  creation.finish();
+  await settingUp;
+  await closing;
+
+  assert.deepEqual(transport.released, [HANDLE]);
+});
+
+test("setup after close rejects with InvalidArgumentError", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+  await config.close();
+
+  await assert.rejects(config.setup(), InvalidArgumentError);
+});
+
+test("an operation after close rejects with InvalidArgumentError", async () => {
+  const transport = engine();
+  const config = await open(transport);
+  await config.close();
+
+  await assert.rejects(config.apply("main.xcl"), InvalidArgumentError);
+});
+
+test("a lookup after close rejects with InvalidArgumentError", async () => {
+  const transport = engine();
+  const config = await open(transport);
+  await config.close();
+
+  await assert.rejects(config.find("test.item.one"), InvalidArgumentError);
+});
+
+test("a configuration closed before its first call never creates it", async () => {
+  const transport = engine();
+  const config = configWith(new Client(transport));
+  await config.close();
+
+  await assert.rejects(config.apply("main.xcl"));
+
+  assert.equal(transport.callsOf("CreateConfig").length, 0);
 });
 
 // validate
@@ -769,8 +974,8 @@ test("two configurations run their operations independently", async () => {
     () => finished(),
   );
   const client = new Client(transport);
-  const firstConfig = await createConfigWith(client, {});
-  const secondConfig = await createConfigWith(client, {});
+  const firstConfig = await configWith(client, {}).setup();
+  const secondConfig = await configWith(client, {}).setup();
 
   const first = firstConfig.apply("first.xcl");
   await reached;

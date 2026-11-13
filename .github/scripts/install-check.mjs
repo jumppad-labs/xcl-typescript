@@ -25,17 +25,17 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-import { createConfig, GitHubRegistry } from "xcl-lang";
+import { Config, GitHubRegistry } from "xcl-lang";
 
 /** The engine package for this platform, chosen as the SDK chooses it. */
 function platformPackage() {
   if (process.platform !== "linux") {
-    return `xcl-lang-${process.platform}-${process.arch}`;
+    return `@jumppad-labs/xcl-lang-${process.platform}-${process.arch}`;
   }
   // a report otherwise looks up every network interface, which can take seconds
   process.report.excludeNetwork = true;
   const libc = process.report.getReport().header.glibcVersionRuntime ? "gnu" : "musl";
-  return `xcl-lang-linux-${process.arch}-${libc}`;
+  return `@jumppad-labs/xcl-lang-linux-${process.arch}-${libc}`;
 }
 
 /** The version the installed platform package's `xcl-core` reports. */
@@ -55,7 +55,7 @@ async function runGettingStarted() {
   const github = new GitHubRegistry({ trustedKeys: [releaseKey] });
   github.registerPlugin("jumppad-labs/xcl-plugin-test", "v0.3.1");
 
-  const config = await createConfig({ registries: [github], statePath: ".xcl" });
+  const config = new Config({ registries: [github], statePath: ".xcl" });
   try {
     await config.apply("main.xcl");
 

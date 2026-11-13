@@ -18,7 +18,7 @@ const SLOW = `resource "slow" "one" {
 function scenario(path: string, state: string, prettyLog = false): string {
   return `import { createServer } from "node:http";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { createConfig, EventDataLevel, LocalRegistry, prettylog } from ${JSON.stringify(SDK_MODULE)};
+import { Config, EventDataLevel, LocalRegistry, prettylog } from ${JSON.stringify(SDK_MODULE)};
 
 const server = createServer((request, response) => {
   response.end("ok");
@@ -28,7 +28,7 @@ const url = "http://127.0.0.1:" + server.address().port + "/";
 
 const local = new LocalRegistry();
 local.registerExternalPlugin(${JSON.stringify(pluginPath(SLOW_PLUGIN))});
-const config = await createConfig({ registries: [local], statePath: ${JSON.stringify(state)}${prettyLog ? ", onEvent: prettylog.handler(), eventData: EventDataLevel.Processed" : ""} });
+const config = await new Config({ registries: [local], statePath: ${JSON.stringify(state)}${prettyLog ? ", onEvent: prettylog.handler(), eventData: EventDataLevel.Processed" : ""} }).setup();
 
 const monitor = monitorEventLoopDelay({ resolution: 10 });
 monitor.enable();

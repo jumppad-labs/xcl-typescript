@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { createConfig, PluginVerificationError, XclError } from "../../src/index.js";
+import { Config, PluginVerificationError, XclError } from "../../src/index.js";
 import { isolateHome, missingEngine, sharedDirectory, testDirectory } from "../helpers/engine.js";
 import { FakeGitHub, type ReleaseAsset } from "../helpers/fake-github.js";
 import {
@@ -92,10 +92,10 @@ test("a release whose index was altered is refused with a signature error", { sk
   const cacheDir = join(directory, "cache");
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(cacheDir, { trustedKeys: [trustedKey()], apiUrl: fake.url })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   const error = await config.validate(configPath).then(
     () => undefined,
     (reason: unknown) => reason,
@@ -130,10 +130,10 @@ test("a release whose zip was altered is refused by its checksum", { skip }, asy
   const cacheDir = join(directory, "cache");
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(cacheDir, { trustedKeys: [trustedKey()], apiUrl: fake.url })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   const error = await config.validate(configPath).then(
     () => undefined,
     (reason: unknown) => reason,
@@ -163,10 +163,10 @@ test("a release signed by an untrusted key is refused", { skip }, async (t) => {
   const cacheDir = join(directory, "cache");
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(cacheDir, { trustedKeys: [UNTRUSTED_KEY], apiUrl: fake.url })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   const error = await config.validate(configPath).then(
     () => undefined,
     (reason: unknown) => reason,
@@ -190,10 +190,10 @@ test("the refusal of an untrusted key names the key that signed the release", { 
   t.after(() => fake.close());
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(join(directory, "cache"), { trustedKeys: [UNTRUSTED_KEY], apiUrl: fake.url })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   const error = await config.validate(configPath).then(
     () => undefined,
     (reason: unknown) => reason,
@@ -216,10 +216,10 @@ test("a release without a signature installs when no keys are trusted", { skip }
   const cacheDir = join(directory, "cache");
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(cacheDir, { trustedKeys: [], apiUrl: fake.url })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   await config.validate(configPath);
 
   const installed = releaseFiles(cacheDir);
@@ -241,10 +241,10 @@ test("the fake API serving the real release installs it", { skip }, async (t) =>
   const cacheDir = join(directory, "cache");
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(cacheDir, { trustedKeys: [trustedKey()], apiUrl: fake.url })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   await config.apply(configPath);
   const first = await config.find(FIRST_ADDRESS);
   await config.destroy();

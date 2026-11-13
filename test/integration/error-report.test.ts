@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { ConfigError, createConfig, formatError, LocalRegistry, printError, type Config } from "../../src/index.js";
+import { ConfigError, Config, formatError, LocalRegistry, printError } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, RECORDING_PLUGIN, ROOT, testDirectory } from "../helpers/engine.js";
 import { runScenario, SDK_MODULE, missingBuild } from "../helpers/script.js";
 
@@ -38,7 +38,7 @@ Blocks of type "nope" are not expected here.
 async function rejected(t: TestContext): Promise<ConfigError> {
   const local = new LocalRegistry();
   local.registerExternalPlugin(pluginPath(RECORDING_PLUGIN));
-  const config: Config = await createConfig({ registries: [local], statePath: join(testDirectory(t), "state") });
+  const config: Config = await new Config({ registries: [local], statePath: join(testDirectory(t), "state") }).setup();
   t.after(() => config.close());
   const error = await config.apply(FIXTURE).catch((caught: unknown) => caught);
   assert.ok(error instanceof ConfigError);
@@ -88,10 +88,10 @@ test("an uncaught error's report holds no colour codes", { skip: needsBuild }, a
 
 test("console.error writes the report in a fresh process", { skip: needsBuild }, async (t) => {
   const directory = testDirectory(t);
-  const source = `import { createConfig, LocalRegistry } from ${JSON.stringify(SDK_MODULE)};
+  const source = `import { Config, LocalRegistry } from ${JSON.stringify(SDK_MODULE)};
 const local = new LocalRegistry();
 local.registerExternalPlugin(${JSON.stringify(pluginPath(RECORDING_PLUGIN))});
-const config = await createConfig({ registries: [local], statePath: ${JSON.stringify(join(directory, "state"))} });
+const config = await new Config({ registries: [local], statePath: ${JSON.stringify(join(directory, "state"))} }).setup();
 try {
   await config.validate(${JSON.stringify(FIXTURE)});
 } catch (error) {

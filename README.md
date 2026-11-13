@@ -14,14 +14,14 @@ Nothing else is needed: no Go, no C compiler, and nothing is downloaded on first
 
 | Platform | Engine package |
 |---|---|
-| Linux x86-64, glibc | `xcl-lang-linux-x64-gnu` |
-| Linux x86-64, musl | `xcl-lang-linux-x64-musl` |
-| Linux arm64, glibc | `xcl-lang-linux-arm64-gnu` |
-| Linux arm64, musl | `xcl-lang-linux-arm64-musl` |
-| macOS x86-64 | `xcl-lang-darwin-x64` |
-| macOS arm64 | `xcl-lang-darwin-arm64` |
-| Windows x86-64 | `xcl-lang-win32-x64` |
-| Windows arm64 | `xcl-lang-win32-arm64` |
+| Linux x86-64, glibc | `@jumppad-labs/xcl-lang-linux-x64-gnu` |
+| Linux x86-64, musl | `@jumppad-labs/xcl-lang-linux-x64-musl` |
+| Linux arm64, glibc | `@jumppad-labs/xcl-lang-linux-arm64-gnu` |
+| Linux arm64, musl | `@jumppad-labs/xcl-lang-linux-arm64-musl` |
+| macOS x86-64 | `@jumppad-labs/xcl-lang-darwin-x64` |
+| macOS arm64 | `@jumppad-labs/xcl-lang-darwin-arm64` |
+| Windows x86-64 | `@jumppad-labs/xcl-lang-win32-x64` |
+| Windows arm64 | `@jumppad-labs/xcl-lang-win32-arm64` |
 
 These are `optionalDependencies`, so `--omit=optional`, `--no-optional` or a lockfile made on another platform leaves yours out. The first use then throws `EngineNotFoundError`, naming the package and how to install it.
 
@@ -49,7 +49,7 @@ test "item" "second" {
 ```ts
 import { readFileSync } from "node:fs";
 
-import { createConfig, GitHubRegistry } from "xcl-lang";
+import { Config, EventDataLevel, GitHubRegistry, prettylog } from "xcl-lang";
 
 // the jumppad-labs release key, from https://xcl.dev/keys/jumppad-labs-releases.asc
 const releaseKey = readFileSync("jumppad-labs-releases.asc", "utf8");
@@ -57,7 +57,14 @@ const releaseKey = readFileSync("jumppad-labs-releases.asc", "utf8");
 const github = new GitHubRegistry({ trustedKeys: [releaseKey] });
 github.registerPlugin("jumppad-labs/xcl-plugin-test", "v0.3.1");
 
-await using config = await createConfig({ registries: [github], statePath: ".xcl" });
+await using config = new Config({
+  registries: [github],
+  statePath: ".xcl",
+  // a readable line per event on standard error, at the level XCL_LOG_LEVEL sets
+  onEvent: prettylog.handler({ level: prettylog.levelFromEnv() }),
+  // puts each created entity's configuration beneath its line
+  eventData: EventDataLevel.Processed,
+});
 
 await config.apply("main.xcl");
 
@@ -65,14 +72,14 @@ const item = await config.find("test.item.second");
 console.log(item.meta.id, item.attributes.value, item.attributes.input);
 ```
 
-The complete project is in [`examples/getting-started`](examples/getting-started), and CI runs it. `await using` closes the configuration when the block ends; `await config.close()` does the same by hand.
+The complete project is in [`examples/getting-started`](examples/getting-started), and CI runs it. `await using` closes the configuration when the block ends; `await config.close()` does the same by hand. The pretty logger shows each step of the apply on standard error; see [Pretty logger](#pretty-logger) for its options.
 
 ## Your own types
 
 Describe a block as a decorated class, and lookups return instances of it. The decorators work with TypeScript's standard decorators and with `experimentalDecorators`, with no setting to change.
 
 ```ts
-import { Attribute, Block, createConfig, Entity, Int, LocalRegistry, Meta, Sensitive } from "xcl-lang";
+import { Attribute, Block, Config, Entity, Int, LocalRegistry, Meta, Sensitive } from "xcl-lang";
 
 class Health {
   @Attribute(String)
@@ -100,7 +107,7 @@ class App {
 const local = new LocalRegistry();
 local.register(App);
 
-await using config = await createConfig({ registries: [local], statePath: ".xcl" });
+await using config = new Config({ registries: [local], statePath: ".xcl" });
 await config.apply("./infra");
 
 const web = await config.find(App, "app.web");
@@ -261,9 +268,9 @@ The labelled text itself is `err.tokens`, `await config.entityTokens(entity)` an
 
 ```ts
 import pino from "pino";
-import { createConfig, events } from "xcl-lang";
+import { Config, events } from "xcl-lang";
 
-await using config = await createConfig({ onEvent: events.toLogger(pino()) });
+await using config = new Config({ onEvent: events.toLogger(pino()) });
 // winston takes the message first:
 // onEvent: events.toLogger(winstonLogger, { order: "message-first" })
 ```
@@ -275,9 +282,9 @@ A log event is written at its own level with its own message. Every other event 
 The pretty logger shows what xcl is doing, in one line of setup: each event a readable line, each created entity's configuration beneath its line, and each configuration mistake's report beneath its error.
 
 ```ts
-import { createConfig, EventDataLevel, prettylog } from "xcl-lang";
+import { Config, EventDataLevel, prettylog } from "xcl-lang";
 
-await using config = await createConfig({
+await using config = new Config({
   onEvent: prettylog.handler({ level: prettylog.levelFromEnv() }),
   eventData: EventDataLevel.Processed, // puts each created entity on its event
 });
@@ -302,13 +309,15 @@ await using config = await createConfig({
 
 ## More
 
-- Events, state stores and encryption: the `onEvent`, `eventData`, `stateStore` and `stateMask` options of `createConfig`.
+- Events, state stores and encryption: the `onEvent`, `eventData`, `stateStore` and `stateMask` options of `new Config({...})`.
 - Errors are classes, one per kind, all `instanceof XclError`.
 - [`PARITY.md`](PARITY.md) lists every Go operation and lookup with its TypeScript equivalent.
 
 ## Engine
 
 One engine runs per process, and one per worker thread, started on first use and shared by every configuration there. An idle engine never keeps Node alive, and it exits when your program does, however your program ends. `XCL_CORE_PATH` runs a source build of the engine instead of the platform package.
+
+Constructing a `Config` starts nothing. The configuration is created in the engine on its first call, which starts the engine if it is not running, checks its version and sends your registered types and functions, so a registration the engine refuses rejects that first call. To find out sooner, call `await config.setup()`: it does the same work and resolves to the configuration. Most programs never need it. It is there for a program that should fail at start-up, such as a service checking its configuration at boot, or that wants the engine's start-up cost paid before latency-sensitive work. Python's asyncio API calls the same thing `open()`.
 
 The npm version equals the xcl release it bundles.
 

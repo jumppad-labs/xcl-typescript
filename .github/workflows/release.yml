@@ -236,8 +236,8 @@ jobs:
           cp "$workspace/.github/scripts/install-check.mjs" "$project/"
           cp "$workspace/tarballs/"*.tgz "$project/"
           cd "$project"
-          npm install --no-audit --no-fund "./xcl-lang-$VERSION.tgz" "./$package-$VERSION.tgz" typescript@5.9.3 @types/node@22.20.5
-          test -x "node_modules/$package/bin/xcl-core$exe"
+          npm install --no-audit --no-fund "./xcl-lang-$VERSION.tgz" "./jumppad-labs-$package-$VERSION.tgz" typescript@5.9.3 @types/node@22.20.5
+          test -x "node_modules/@jumppad-labs/$package/bin/xcl-core$exe"
 
           # the example against the installed types, and the install check
           # with no XCL_CORE_PATH, so the engine comes from the platform package
@@ -249,7 +249,7 @@ jobs:
           cp -r "$workspace/build/test/test" build/test/test
           cp -r "$workspace/build/plugins" build/plugins
           node -e "require('fs').symlinkSync(require('path').resolve('node_modules/xcl-lang/dist'), 'build/test/src', 'junction')"
-          XCL_CORE_PATH="$(node -p "require('path').resolve('node_modules/$package/bin/xcl-core$exe')")"
+          XCL_CORE_PATH="$(node -p "require('path').resolve('node_modules/@jumppad-labs/$package/bin/xcl-core$exe')")"
           export XCL_CORE_PATH
           node --test --test-timeout=300000 "build/test/test/parity/*.test.js"
 
@@ -317,8 +317,8 @@ jobs:
             cp /work/.github/scripts/install-check.mjs /project/
             cp /work/tarballs/*.tgz /project/
             cd /project
-            npm install --no-audit --no-fund "./xcl-lang-$VERSION.tgz" "./$PACKAGE-$VERSION.tgz" typescript@5.9.3 @types/node@22.20.5
-            test -x "node_modules/$PACKAGE/bin/xcl-core"
+            npm install --no-audit --no-fund "./xcl-lang-$VERSION.tgz" "./jumppad-labs-$PACKAGE-$VERSION.tgz" typescript@5.9.3 @types/node@22.20.5
+            test -x "node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core"
 
             npx tsc -p .
             node install-check.mjs "$TAG"
@@ -327,7 +327,7 @@ jobs:
             cp -r /work/build/test/test build/test/test
             cp -r /work/build/plugins build/plugins
             ln -s /project/node_modules/xcl-lang/dist build/test/src
-            XCL_CORE_PATH="/project/node_modules/$PACKAGE/bin/xcl-core" \
+            XCL_CORE_PATH="/project/node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core" \
               node --test --test-timeout=300000 "build/test/test/parity/*.test.js"'
 
   # needs every verify job, without always(), so one failed or cancelled
@@ -367,11 +367,11 @@ jobs:
                          xcl-lang-linux-arm64-gnu xcl-lang-linux-arm64-musl \
                          xcl-lang-darwin-x64 xcl-lang-darwin-arm64 \
                          xcl-lang-win32-x64 xcl-lang-win32-arm64; do
-            if [ -n "$(npm view "$package@$VERSION" version 2>/dev/null || true)" ]; then
-              echo "$package@$VERSION is already published"
+            if [ -n "$(npm view "@jumppad-labs/$package@$VERSION" version 2>/dev/null || true)" ]; then
+              echo "@jumppad-labs/$package@$VERSION is already published"
               continue
             fi
-            npm publish "./tarballs/$package-$VERSION.tgz" --provenance --access public
+            npm publish "./tarballs/jumppad-labs-$package-$VERSION.tgz" --provenance --access public
           done
 
       - name: Publish xcl-lang
@@ -449,11 +449,11 @@ jobs:
           installed=false
           for attempt in $(seq 1 20); do
             rm -rf node_modules package-lock.json
-            if npm install --no-audit --no-fund --prefer-online "xcl-lang@$VERSION" && [ -x "node_modules/$package/bin/xcl-core$exe" ]; then
+            if npm install --no-audit --no-fund --prefer-online "xcl-lang@$VERSION" && [ -x "node_modules/@jumppad-labs/$package/bin/xcl-core$exe" ]; then
               installed=true
               break
             fi
-            echo "xcl-lang@$VERSION and $package are not both on npm yet, waiting (attempt $attempt)"
+            echo "xcl-lang@$VERSION and @jumppad-labs/$package are not both on npm yet, waiting (attempt $attempt)"
             sleep 30
           done
           if [ "$installed" != true ]; then
@@ -501,11 +501,11 @@ jobs:
             installed=false
             for attempt in $(seq 1 20); do
               rm -rf node_modules package-lock.json
-              if npm install --no-audit --no-fund --prefer-online "xcl-lang@$VERSION" && [ -x "node_modules/$PACKAGE/bin/xcl-core" ]; then
+              if npm install --no-audit --no-fund --prefer-online "xcl-lang@$VERSION" && [ -x "node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core" ]; then
                 installed=true
                 break
               fi
-              echo "xcl-lang@$VERSION and $PACKAGE are not both on npm yet, waiting (attempt $attempt)"
+              echo "xcl-lang@$VERSION and @jumppad-labs/$PACKAGE are not both on npm yet, waiting (attempt $attempt)"
               sleep 30
             done
             if [ "$installed" != true ]; then

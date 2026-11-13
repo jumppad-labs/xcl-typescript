@@ -13,7 +13,7 @@ process.env.TZ = "UTC";
 
 import { create, fromBinary, type MessageInitShape } from "@bufbuild/protobuf";
 
-import { createConfigWith } from "../../src/config.js";
+import { configWith } from "../../src/config.js";
 import { ConfigError, InvalidArgumentError } from "../../src/errors.js";
 import { Event, EventDataLevel, type LevelLogger } from "../../src/events.js";
 import type { Writer } from "../../src/highlight/formatters.js";
@@ -198,7 +198,7 @@ function engine(...polls: (() => CallResult)[]): FakeTransport {
 }
 
 async function applyThrough(transport: FakeTransport, onEvent: (event: Event) => Promise<void>, eventData: EventDataLevel = EventDataLevel.Processed): Promise<void> {
-  const config = await createConfigWith(new Client(transport), { onEvent, eventData });
+  const config = await configWith(new Client(transport), { onEvent, eventData }).setup();
   await config.apply("main.xcl");
 }
 
@@ -690,7 +690,7 @@ test("the guidance is written once when events carry no data", async () => {
 test("the guidance is written once for a configuration created with the default event data", async () => {
   const out = new Collect();
   const transport = engine(() => webCreateSuccessTask(), () => apiCreateSuccessTask());
-  const config = await createConfigWith(new Client(transport), { onEvent: handler({ out }) });
+  const config = await configWith(new Client(transport), { onEvent: handler({ out }) }).setup();
 
   await config.apply("main.xcl");
 
@@ -931,7 +931,7 @@ test("a report appears once through a configuration", async () => {
     () => eventTask({ operation: "apply", phase: "error", error: invalidWithOneProblem() }),
     () => ok(PollResponseSchema, { task: { case: "finished", value: { operationId: 1n, error: invalidWithOneProblem() } } }),
   );
-  const config = await createConfigWith(new Client(transport), { onEvent: handler({ out }) });
+  const config = await configWith(new Client(transport), { onEvent: handler({ out }) }).setup();
 
   await assert.rejects(config.apply("main.xcl"), ConfigError);
 
@@ -946,7 +946,7 @@ test("a closing error's report appears through a configuration when no earlier l
     () => eventTask({ operation: "apply", phase: "error", error: invalidWithOneProblem() }),
     () => ok(PollResponseSchema, { task: { case: "finished", value: { operationId: 1n, error: invalidWithOneProblem() } } }),
   );
-  const config = await createConfigWith(new Client(transport), { onEvent: handler({ out }) });
+  const config = await configWith(new Client(transport), { onEvent: handler({ out }) }).setup();
 
   await assert.rejects(config.apply("main.xcl"), ConfigError);
 

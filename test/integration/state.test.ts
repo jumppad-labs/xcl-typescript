@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { Attribute, createConfig, Entity, type Event, EventDataLevel, LocalRegistry, Meta, Sensitive, type StateStore } from "../../src/index.js";
+import { Attribute, Config, Entity, type Event, EventDataLevel, LocalRegistry, Meta, Sensitive, type StateStore } from "../../src/index.js";
 import { aes256gcm } from "../../src/mask.js";
 import { isolateHome, missingEngine, testDirectory, writeConfig } from "../helpers/engine.js";
 import { missingBuild, runScenario, SDK_MODULE } from "../helpers/script.js";
@@ -31,7 +31,7 @@ const TEXT = `app "web" {
 `;
 
 // the scenarios are plain JavaScript, so they call the decorators in their legacy form
-const SCENARIO_APP = `import { Attribute, createConfig, Entity, LocalRegistry, Meta, Sensitive } from ${JSON.stringify(SDK_MODULE)};
+const SCENARIO_APP = `import { Attribute, Config, Entity, LocalRegistry, Meta, Sensitive } from ${JSON.stringify(SDK_MODULE)};
 class App {
   meta;
   image;
@@ -89,7 +89,7 @@ function savedState(directory: string): { meta: { id: string }; image: string; p
 test("a store with async methods receives the state on apply", { skip: needsEngine }, async (t) => {
   const path = writeConfig(testDirectory(t), "main.xcl", TEXT);
   const store = new MemoryStore();
-  await using config = await createConfig({ registries: [registry()], stateStore: store });
+  await using config = await new Config({ registries: [registry()], stateStore: store }).setup();
 
   await config.apply(path);
 
@@ -101,7 +101,7 @@ test("a later load in a new process reads a custom store back", { skip: needsEng
   const path = writeConfig(directory, "main.xcl", TEXT);
   const store = new MemoryStore();
   {
-    await using config = await createConfig({ registries: [registry()], stateStore: store });
+    await using config = await new Config({ registries: [registry()], stateStore: store }).setup();
     await config.apply(path);
   }
   const saved = Buffer.from(JSON.stringify(store.records.map((record) => Buffer.from(record).toString("base64")))).toString("base64");
@@ -110,7 +110,7 @@ test("a later load in a new process reads a custom store back", { skip: needsEng
     `${SCENARIO_APP}
 const records = JSON.parse(Buffer.from(${JSON.stringify(saved)}, "base64").toString()).map((record) => new Uint8Array(Buffer.from(record, "base64")));
 const store = { load: async () => records, save: async () => {}, exists: async () => true, clear: async () => {} };
-const config = await createConfig({ registries: [local], stateStore: store });
+const config = await new Config({ registries: [local], stateStore: store }).setup();
 await config.load();
 const web = await config.find(App, "app.web");
 console.log("image:" + web.image);
@@ -128,14 +128,14 @@ test("a state directory is written by an apply and read back by a load in a new 
   const path = writeConfig(directory, "main.xcl", TEXT);
   const state = join(directory, "state");
   {
-    await using config = await createConfig({ registries: [registry()], statePath: state });
+    await using config = await new Config({ registries: [registry()], statePath: state }).setup();
     await config.apply(path);
   }
 
   assert.equal(savedState(state).find((record) => record.meta.id === "app.web")?.image, "nginx");
   const script = await runScenario(
     `${SCENARIO_APP}
-const config = await createConfig({ registries: [local], statePath: ${JSON.stringify(state)} });
+const config = await new Config({ registries: [local], statePath: ${JSON.stringify(state)} }).setup();
 await config.load();
 const web = await config.find(App, "app.web");
 console.log("image:" + web.image);
@@ -151,7 +151,7 @@ await config.close();
 test("with encryption enabled, sensitive values in what the store receives are encrypted", { skip: needsEngine }, async (t) => {
   const path = writeConfig(testDirectory(t), "main.xcl", TEXT);
   const store = new MemoryStore();
-  await using config = await createConfig({ registries: [registry()], stateStore: store, stateMask: aes256gcm(new Uint8Array(32).fill(1)) });
+  await using config = await new Config({ registries: [registry()], stateStore: store, stateMask: aes256gcm(new Uint8Array(32).fill(1)) }).setup();
 
   await config.apply(path);
 
@@ -167,7 +167,7 @@ test("a store's exception fails the operation with its message", { skip: needsEn
   store.save = async () => {
     throw new Error("the disk is full");
   };
-  await using config = await createConfig({ registries: [registry()], stateStore: store });
+  await using config = await new Config({ registries: [registry()], stateStore: store }).setup();
 
   await assert.rejects(config.apply(path), /the disk is full/);
 });
@@ -176,7 +176,7 @@ test("a sensitive value is masked in state when a state mask is set", { skip: ne
   const directory = testDirectory(t);
   const path = writeConfig(directory, "main.xcl", TEXT);
   const state = join(directory, "state");
-  await using config = await createConfig({ registries: [registry()], statePath: state, stateMask: aes256gcm(new Uint8Array(32).fill(2)) });
+  await using config = await new Config({ registries: [registry()], statePath: state, stateMask: aes256gcm(new Uint8Array(32).fill(2)) }).setup();
 
   await config.apply(path);
 
@@ -188,7 +188,7 @@ test("a sensitive value is masked in state when a state mask is set", { skip: ne
 test("a sensitive value is masked in events when a state mask is set", { skip: needsEngine }, async (t) => {
   const path = writeConfig(testDirectory(t), "main.xcl", TEXT);
   const events: Event[] = [];
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [registry()],
     statePath: join(testDirectory(t), "state"),
     stateMask: aes256gcm(new Uint8Array(32).fill(3)),
@@ -196,7 +196,7 @@ test("a sensitive value is masked in events when a state mask is set", { skip: n
     onEvent: (event) => {
       events.push(event);
     },
-  });
+  }).setup();
 
   await config.apply(path);
 

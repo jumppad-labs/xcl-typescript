@@ -16,7 +16,7 @@ const TEXT = `app "web" {
 
 /** Applies the configuration at `path` and prints what it read back. */
 function applyProgram(path: string, state: string): string {
-  return `const { Attribute, createConfig, Entity, LocalRegistry, Meta } = await import(${JSON.stringify(SDK_MODULE)});
+  return `const { Attribute, Config, Entity, LocalRegistry, Meta } = await import(${JSON.stringify(SDK_MODULE)});
 class App {
   meta;
   image;
@@ -26,7 +26,7 @@ Attribute(String)(App.prototype, "image");
 Entity("app")(App);
 const local = new LocalRegistry();
 local.register(App);
-const config = await createConfig({ registries: [local], statePath: ${JSON.stringify(state)} });
+const config = await new Config({ registries: [local], statePath: ${JSON.stringify(state)} }).setup();
 await config.apply(${JSON.stringify(path)});
 const web = await config.find(App, "app.web");
 await config.close();

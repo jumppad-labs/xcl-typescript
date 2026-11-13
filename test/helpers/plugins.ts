@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 
-import { createConfig, GitHubRegistry, XclError } from "../../src/index.js";
+import { Config, GitHubRegistry, XclError } from "../../src/index.js";
 import { ROOT, strict, STRICT_ENV, writeConfig } from "./engine.js";
 
 /** The repository of the plugin release the tests install. */
@@ -177,10 +177,10 @@ async function install(cacheDir: string): Promise<{ release: ReleaseFiles } | { 
   const directory = join(cacheDir, "install");
   const configPath = writeTestPluginConfig(directory, join(directory, "ops.jsonl"));
   try {
-    await using config = await createConfig({
+    await using config = await new Config({
       registries: [githubRegistry(cacheDir, { trustedKeys: [trustedKey()] })],
       statePath: join(directory, "state"),
-    });
+    }).setup();
     await config.validate(configPath);
   } catch (error) {
     if (error instanceof XclError) {

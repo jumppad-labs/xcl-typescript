@@ -95,20 +95,76 @@ function pathsOf(paths: Paths): string[] {
   return listed;
 }
 
-class ConfigImpl {
+let sharedClient: Client | undefined;
+
+/** The client every configuration uses unless it was made with `configWith`. @internal */
+export function sharedEngineClient(): Client {
+  sharedClient ??= new Client(sharedTransport());
+  return sharedClient;
+}
+
+function variablesJson(variables: Readonly<Record<string, unknown>>): Uint8Array {
+  const named = Object.fromEntries(Object.entries(variables).map(([name, value]) => [toSnake(name), value]));
+  return new TextEncoder().encode(JSON.stringify(named));
+}
+
+function createRequest(options: ConfigOptions): Record<string, unknown> {
+  return {
+    registries: (options.registries ?? []).map((registry) => registry.toProto()),
+    events: options.onEvent !== undefined,
+    eventBufferSize: options.eventBufferSize ?? 0,
+    eventData: eventDataLevelMessage(options.eventData ?? "none"),
+    ...(options.statePath !== undefined ? { stateStore: { kind: { case: "path" as const, value: options.statePath } } } : {}),
+    ...(options.stateStore !== undefined ? { stateStore: { kind: { case: "host" as const, value: true } } } : {}),
+    ...(options.stateMask !== undefined ? { stateMask: options.stateMask.message } : {}),
+    ...(options.eventMask !== undefined ? { eventMask: options.eventMask.message } : {}),
+    noEventMask: options.noEventMask ?? false,
+    ...(options.variables !== undefined && Object.keys(options.variables).length > 0 ? { variablesJson: variablesJson(options.variables) } : {}),
+  };
+}
+
+// the client the next constructed configuration uses, set only for the
+// duration of a synchronous `configWith` call
+let clientForNext: Client | undefined;
+
+/**
+ * A configuration: its operations and lookups.
+ *
+ * Constructing one does no I/O. The configuration is created in the engine on
+ * its first call, which starts the engine on first use, checks its version and
+ * sends every registered type and function, so a registration the engine
+ * refuses rejects that first call. Call `setup()` to do that work earlier.
+ * Close it with `await using` or `close()`.
+ */
+export class Config {
+  #client: Client | undefined;
   #handle: bigint | undefined;
+  #creating: Promise<bigint> | undefined;
+  #closed = false;
   #running = false;
-  readonly #client: Client;
+  readonly #request: Record<string, unknown>;
   readonly #classes: ClassMap;
   readonly #handlers: Handlers;
 
-  constructor(client: Client, handle: bigint, classes: ClassMap, handlers: Handlers, eventData: EventDataLevel = "none") {
-    this.#client = client;
-    this.#handle = handle;
-    this.#classes = classes;
+  /**
+   * A configuration built from `options`, with nothing sent to the engine yet.
+   * Throws for options that cannot work together: `InvalidArgumentError` for
+   * `statePath` with `stateStore`, and `SchemaError` for one class registered
+   * as two block types.
+   */
+  constructor(options: ConfigOptions = {}) {
+    if (options.statePath !== undefined && options.stateStore !== undefined) {
+      throw new InvalidArgumentError("give statePath or stateStore, not both");
+    }
+    this.#client = clientForNext;
+    const registries = options.registries ?? [];
+    this.#classes = new ClassMap(registries.flatMap((registry) => registry.registrations));
+    this.#request = createRequest(options);
+    const functions = new Map(registries.flatMap((registry) => registry.functions).map((declared) => [declared.name, declared.call]));
+    const handlers: Handlers = { functions, onEvent: options.onEvent, store: options.stateStore, classes: this.#classes };
     // each event remembers, privately, the configuration delivering it, so the
     // pretty logger can render its saved record with no configuration passed in
-    const link: EventLink = { eventData, savedEntityTokens: (record) => this.#savedEntityTokens(record) };
+    const link: EventLink = { eventData: options.eventData ?? "none", savedEntityTokens: (record) => this.#savedEntityTokens(record) };
     const onEvent = handlers.onEvent;
     this.#handlers =
       onEvent === undefined
@@ -120,6 +176,21 @@ class ConfigImpl {
               return onEvent(event);
             },
           };
+  }
+
+  /**
+   * Creates the configuration in the engine now rather than on its first
+   * call, and resolves to it. Optional: every call does this itself.
+   *
+   * Use it to fail at start-up, for example a service checking its
+   * configuration at boot, on a registration the engine refuses, a missing
+   * engine or an engine of the wrong version; or to pay the engine's start-up
+   * cost before latency-sensitive work. Calling it again does nothing more.
+   * Python's asyncio API calls this `open()`.
+   */
+  async setup(): Promise<this> {
+    await this.#ensure();
+    return this;
   }
 
   /** Checks the configuration at `paths` is valid, calling no provider. Rejects with `ConfigError`. */
@@ -158,7 +229,7 @@ class ConfigImpl {
     if (type !== undefined) {
       this.#classes.namesOf(type);
     }
-    const response = await this.#client.call(this.#open(), "find", { address: target });
+    const response = await this.#engine().call(await this.#ensure(), "find", { address: target });
     return this.#result(response.entity, type);
   }
 
@@ -172,7 +243,7 @@ class ConfigImpl {
     if (type !== undefined) {
       this.#classes.namesOf(type);
     }
-    const response = await this.#client.call(this.#open(), "findByType", { path });
+    const response = await this.#engine().call(await this.#ensure(), "findByType", { path });
     return response.entities.map((entity) => this.#result(entity, type));
   }
 
@@ -186,7 +257,7 @@ class ConfigImpl {
     if (type !== undefined) {
       this.#classes.namesOf(type);
     }
-    const response = await this.#client.call(this.#open(), "findOne", { path });
+    const response = await this.#engine().call(await this.#ensure(), "findOne", { path });
     return this.#result(response.entity, type);
   }
 
@@ -198,19 +269,19 @@ class ConfigImpl {
 
   /** Every entity the configuration holds: an instance of the registered class where there is one, a generic `Entity` otherwise. */
   async entities(): Promise<Array<object | Entity>> {
-    const response = await this.#client.call(this.#open(), "entities", {});
+    const response = await this.#engine().call(await this.#ensure(), "entities", {});
     return response.entities.map((entity) => hydrate(parseRecord(entity), this.#classes));
   }
 
   /** How many entities the configuration holds. */
   async entityCount(): Promise<number> {
-    const response = await this.#client.call(this.#open(), "entities", {});
+    const response = await this.#engine().call(await this.#ensure(), "entities", {});
     return response.entities.length;
   }
 
   /** The configuration's outputs as a plain object, keyed by address with the output's name in camelCase. */
   async outputs(): Promise<Record<string, unknown>> {
-    const response = await this.#client.call(this.#open(), "outputs", {});
+    const response = await this.#engine().call(await this.#ensure(), "outputs", {});
     if (response.outputsJson.length === 0) {
       return {};
     }
@@ -225,7 +296,7 @@ class ConfigImpl {
    */
   async encodeEntity(entity: unknown, options: EncodeOptions = {}): Promise<string> {
     const record = recordBytes(entity, this.#classes);
-    const response = await this.#client.call(this.#open(), "encodeEntity", { entity: record, options: encodeOptions(options) });
+    const response = await this.#engine().call(await this.#ensure(), "encodeEntity", { entity: record, options: encodeOptions(options) });
     return new TextDecoder().decode(response.text);
   }
 
@@ -236,7 +307,7 @@ class ConfigImpl {
    */
   async encodeSavedEntity(record: Uint8Array | string, options: EncodeOptions = {}): Promise<string> {
     const entity = typeof record === "string" ? new TextEncoder().encode(record) : record;
-    const response = await this.#client.call(this.#open(), "encodeSavedEntity", { entity, options: encodeOptions(options) });
+    const response = await this.#engine().call(await this.#ensure(), "encodeSavedEntity", { entity, options: encodeOptions(options) });
     return new TextDecoder().decode(response.text);
   }
 
@@ -254,16 +325,26 @@ class ConfigImpl {
   /** An entity's configuration text as labelled text, the same text `encodeEntity` returns. Refused while an operation runs. */
   async entityTokens(entity: object, options: EncodeOptions = {}): Promise<Token[]> {
     const record = recordBytes(entity, this.#classes);
-    const response = await this.#client.call(this.#open(), "encodeEntity", { entity: record, options: encodeOptions(options), tokens: true });
+    const response = await this.#engine().call(await this.#ensure(), "encodeEntity", { entity: record, options: encodeOptions(options), tokens: true });
     return tokensFromProto(response.tokens);
   }
 
-  /** Releases the configuration in the engine. Closing twice is harmless. */
+  /**
+   * Releases the configuration in the engine. Every later call rejects with
+   * `InvalidArgumentError`. Closing twice, or closing a configuration that was
+   * never created in the engine, is harmless.
+   */
   async close(): Promise<void> {
+    this.#closed = true;
+    const creating = this.#creating;
+    if (creating !== undefined) {
+      // a creation still in flight finishes first, so its handle is released
+      await creating.catch(() => undefined);
+    }
     const handle = this.#handle;
     if (handle !== undefined) {
       this.#handle = undefined;
-      await this.#client.release(handle);
+      await this.#engine().release(handle);
     }
   }
 
@@ -274,7 +355,7 @@ class ConfigImpl {
 
   /** A saved record as labelled text with its computed values, as the pretty logger shows it; allowed during an operation. */
   async #savedEntityTokens(record: Uint8Array): Promise<Token[]> {
-    const response = await this.#client.call(this.#open(), "encodeSavedEntity", { entity: record, options: encodeOptions({ includeComputed: true }), tokens: true });
+    const response = await this.#engine().call(await this.#ensure(), "encodeSavedEntity", { entity: record, options: encodeOptions({ includeComputed: true }), tokens: true });
     return tokensFromProto(response.tokens);
   }
 
@@ -283,17 +364,49 @@ class ConfigImpl {
     return type === undefined ? new GenericEntity(record, this.#classes) : typedEntity(record, type, this.#classes);
   }
 
-  #open(): bigint {
-    if (this.#handle === undefined) {
-      throw new InvalidArgumentError("the configuration is closed");
+  #engine(): Client {
+    this.#client ??= sharedEngineClient();
+    return this.#client;
+  }
+
+  /**
+   * The configuration's handle, creating it in the engine on the first call.
+   * Concurrent first calls share one creation; a failed creation is not
+   * remembered, so the next call tries again, on a fresh engine if the last
+   * one exited.
+   */
+  #ensure(): Promise<bigint> {
+    if (this.#closed) {
+      return Promise.reject(new InvalidArgumentError("the configuration is closed"));
     }
-    return this.#handle;
+    if (this.#handle !== undefined) {
+      return Promise.resolve(this.#handle);
+    }
+    this.#creating ??= this.#create().then(
+      (handle) => {
+        this.#creating = undefined;
+        return handle;
+      },
+      (error: unknown) => {
+        this.#creating = undefined;
+        throw error;
+      },
+    );
+    return this.#creating;
+  }
+
+  async #create(): Promise<bigint> {
+    const response = await this.#engine().call(0n, "createConfig", this.#request as never);
+    this.#handle = response.handle;
+    return response.handle;
   }
 
   async #run(method: "startValidate" | "startApply" | "startDiff" | "startLoad" | "startDestroy", buildRequest: () => Record<string, unknown>, signal: AbortSignal | undefined): Promise<Diff | undefined> {
     try {
       const request = buildRequest();
-      const handle = this.#open();
+      if (this.#closed) {
+        throw new InvalidArgumentError("the configuration is closed");
+      }
       if (this.#running) {
         throw new OperationInProgressError("another operation is running on this configuration; operations on one configuration run one at a time");
       }
@@ -303,8 +416,13 @@ class ConfigImpl {
 
       this.#running = true;
       try {
-        const started = await this.#client.call(handle, method, request as never);
-        return await new Operation(this.#client, handle, started.operationId, this.#handlers).drive(signal);
+        const handle = await this.#ensure();
+        if (signal?.aborted) {
+          throw new CancelledError("the operation was not started: its signal was aborted while the configuration was being created", { cause: signal.reason });
+        }
+        const client = this.#engine();
+        const started = await client.call(handle, method, request as never);
+        return await new Operation(client, handle, started.operationId, this.#handlers).drive(signal);
       } finally {
         this.#running = false;
       }
@@ -314,49 +432,12 @@ class ConfigImpl {
   }
 }
 
-/** A configuration, created with `createConfig`. There is no constructor to call. */
-export type Config = ConfigImpl;
-
-let sharedClient: Client | undefined;
-
-/** The client every configuration created with `createConfig` uses. @internal */
-export function sharedEngineClient(): Client {
-  sharedClient ??= new Client(sharedTransport());
-  return sharedClient;
-}
-
-function variablesJson(variables: Readonly<Record<string, unknown>>): Uint8Array {
-  const named = Object.fromEntries(Object.entries(variables).map(([name, value]) => [toSnake(name), value]));
-  return new TextEncoder().encode(JSON.stringify(named));
-}
-
-/** `createConfig` over a client of the caller's. @internal */
-export async function createConfigWith(client: Client, options: ConfigOptions): Promise<Config> {
-  if (options.statePath !== undefined && options.stateStore !== undefined) {
-    throw new InvalidArgumentError("give statePath or stateStore, not both");
+/** A configuration over a client of the caller's, such as a fake transport's. @internal */
+export function configWith(client: Client, options: ConfigOptions = {}): Config {
+  clientForNext = client;
+  try {
+    return new Config(options);
+  } finally {
+    clientForNext = undefined;
   }
-  const classes = new ClassMap((options.registries ?? []).flatMap((registry) => registry.registrations));
-  const response = await client.call(0n, "createConfig", {
-    registries: (options.registries ?? []).map((registry) => registry.toProto()),
-    events: options.onEvent !== undefined,
-    eventBufferSize: options.eventBufferSize ?? 0,
-    eventData: eventDataLevelMessage(options.eventData ?? "none"),
-    ...(options.statePath !== undefined ? { stateStore: { kind: { case: "path" as const, value: options.statePath } } } : {}),
-    ...(options.stateStore !== undefined ? { stateStore: { kind: { case: "host" as const, value: true } } } : {}),
-    ...(options.stateMask !== undefined ? { stateMask: options.stateMask.message } : {}),
-    ...(options.eventMask !== undefined ? { eventMask: options.eventMask.message } : {}),
-    noEventMask: options.noEventMask ?? false,
-    ...(options.variables !== undefined && Object.keys(options.variables).length > 0 ? { variablesJson: variablesJson(options.variables) } : {}),
-  });
-  const functions = new Map((options.registries ?? []).flatMap((registry) => registry.functions).map((declared) => [declared.name, declared.call]));
-  return new ConfigImpl(client, response.handle, classes, { functions, onEvent: options.onEvent, store: options.stateStore, classes }, options.eventData ?? "none");
-}
-
-/**
- * Creates a configuration. It starts the engine on first use, checks its
- * version and asks it to build the configuration, so a registration the engine
- * refuses fails here rather than on the first operation.
- */
-export function createConfig(options: ConfigOptions = {}): Promise<Config> {
-  return createConfigWith(sharedEngineClient(), options);
 }

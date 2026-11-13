@@ -1,7 +1,7 @@
 /**
  * Registries: where a configuration's plugins come from. They are plain
  * builders that hold no engine state: register what the configuration may use,
- * then pass the registry to `createConfig`.
+ * then pass the registry to `new Config`.
  */
 
 import type { MessageInitShape } from "@bufbuild/protobuf";

@@ -13,7 +13,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { createConfig, GitHubRegistry } from "xcl-lang";
+import { Config, EventDataLevel, GitHubRegistry, prettylog } from "xcl-lang";
 
 // the jumppad-labs release key, from https://xcl.dev/keys/jumppad-labs-releases.asc
 const releaseKey = readFileSync("jumppad-labs-releases.asc", "utf8");
@@ -21,7 +21,14 @@ const releaseKey = readFileSync("jumppad-labs-releases.asc", "utf8");
 const github = new GitHubRegistry({ trustedKeys: [releaseKey] });
 github.registerPlugin("jumppad-labs/xcl-plugin-test", "v0.3.1");
 
-await using config = await createConfig({ registries: [github], statePath: ".xcl" });
+await using config = new Config({
+  registries: [github],
+  statePath: ".xcl",
+  // a readable line per event on standard error, at the level XCL_LOG_LEVEL sets
+  onEvent: prettylog.handler({ level: prettylog.levelFromEnv() }),
+  // puts each created entity's configuration beneath its line
+  eventData: EventDataLevel.Processed,
+});
 
 await config.apply("main.xcl");
 

@@ -67,15 +67,15 @@ test("the script produces nine tarballs", { skip: process.platform === "win32" }
   const { out } = assembled(t);
 
   assert.deepEqual(readdirSync(out).sort(), [
+    "jumppad-labs-xcl-lang-darwin-arm64-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-darwin-x64-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-linux-arm64-gnu-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-linux-arm64-musl-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-linux-x64-gnu-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-linux-x64-musl-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-win32-arm64-1.2.3.tgz",
+    "jumppad-labs-xcl-lang-win32-x64-1.2.3.tgz",
     "xcl-lang-1.2.3.tgz",
-    "xcl-lang-darwin-arm64-1.2.3.tgz",
-    "xcl-lang-darwin-x64-1.2.3.tgz",
-    "xcl-lang-linux-arm64-gnu-1.2.3.tgz",
-    "xcl-lang-linux-arm64-musl-1.2.3.tgz",
-    "xcl-lang-linux-x64-gnu-1.2.3.tgz",
-    "xcl-lang-linux-x64-musl-1.2.3.tgz",
-    "xcl-lang-win32-arm64-1.2.3.tgz",
-    "xcl-lang-win32-x64-1.2.3.tgz",
   ]);
 });
 
@@ -90,27 +90,27 @@ test("every tarball carries the one version", { skip: process.platform === "win3
 test("each platform package holds the engine of its own platform", { skip: process.platform === "win32" }, (t) => {
   const { out } = assembled(t);
 
-  assert.equal(engineText(join(out, "xcl-lang-linux-x64-gnu-1.2.3.tgz"), "xcl-core"), "engine for linux_amd64\n");
-  assert.equal(engineText(join(out, "xcl-lang-linux-x64-musl-1.2.3.tgz"), "xcl-core"), "engine for linux_amd64_musl\n");
-  assert.equal(engineText(join(out, "xcl-lang-linux-arm64-gnu-1.2.3.tgz"), "xcl-core"), "engine for linux_arm64\n");
-  assert.equal(engineText(join(out, "xcl-lang-linux-arm64-musl-1.2.3.tgz"), "xcl-core"), "engine for linux_arm64_musl\n");
-  assert.equal(engineText(join(out, "xcl-lang-darwin-x64-1.2.3.tgz"), "xcl-core"), "engine for darwin_amd64\n");
-  assert.equal(engineText(join(out, "xcl-lang-darwin-arm64-1.2.3.tgz"), "xcl-core"), "engine for darwin_arm64\n");
-  assert.equal(engineText(join(out, "xcl-lang-win32-x64-1.2.3.tgz"), "xcl-core.exe"), "engine for windows_amd64\n");
-  assert.equal(engineText(join(out, "xcl-lang-win32-arm64-1.2.3.tgz"), "xcl-core.exe"), "engine for windows_arm64\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-linux-x64-gnu-1.2.3.tgz"), "xcl-core"), "engine for linux_amd64\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-linux-x64-musl-1.2.3.tgz"), "xcl-core"), "engine for linux_amd64_musl\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-linux-arm64-gnu-1.2.3.tgz"), "xcl-core"), "engine for linux_arm64\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-linux-arm64-musl-1.2.3.tgz"), "xcl-core"), "engine for linux_arm64_musl\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-darwin-x64-1.2.3.tgz"), "xcl-core"), "engine for darwin_amd64\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-darwin-arm64-1.2.3.tgz"), "xcl-core"), "engine for darwin_arm64\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-win32-x64-1.2.3.tgz"), "xcl-core.exe"), "engine for windows_amd64\n");
+  assert.equal(engineText(join(out, "jumppad-labs-xcl-lang-win32-arm64-1.2.3.tgz"), "xcl-core.exe"), "engine for windows_arm64\n");
 });
 
 test("the engine is executable inside its package", { skip: process.platform === "win32" }, (t) => {
   const { out } = assembled(t);
 
-  assert.match(listingOf(join(out, "xcl-lang-linux-x64-gnu-1.2.3.tgz"), "xcl-core"), /^-rwxr-xr-x/);
-  assert.match(listingOf(join(out, "xcl-lang-win32-x64-1.2.3.tgz"), "xcl-core.exe"), /^-rwxr-xr-x/);
+  assert.match(listingOf(join(out, "jumppad-labs-xcl-lang-linux-x64-gnu-1.2.3.tgz"), "xcl-core"), /^-rwxr-xr-x/);
+  assert.match(listingOf(join(out, "jumppad-labs-xcl-lang-win32-x64-1.2.3.tgz"), "xcl-core.exe"), /^-rwxr-xr-x/);
 });
 
 test("a Linux package declares its operating system, CPU and C library", { skip: process.platform === "win32" }, (t) => {
   const { out } = assembled(t);
 
-  const manifest = manifestOf(join(out, "xcl-lang-linux-arm64-musl-1.2.3.tgz"));
+  const manifest = manifestOf(join(out, "jumppad-labs-xcl-lang-linux-arm64-musl-1.2.3.tgz"));
 
   assert.deepEqual(manifest.os, ["linux"]);
   assert.deepEqual(manifest.cpu, ["arm64"]);
@@ -120,13 +120,13 @@ test("a Linux package declares its operating system, CPU and C library", { skip:
 test("a glibc package declares glibc", { skip: process.platform === "win32" }, (t) => {
   const { out } = assembled(t);
 
-  assert.deepEqual(manifestOf(join(out, "xcl-lang-linux-x64-gnu-1.2.3.tgz")).libc, ["glibc"]);
+  assert.deepEqual(manifestOf(join(out, "jumppad-labs-xcl-lang-linux-x64-gnu-1.2.3.tgz")).libc, ["glibc"]);
 });
 
 test("a macOS package declares its operating system and CPU and no C library", { skip: process.platform === "win32" }, (t) => {
   const { out } = assembled(t);
 
-  const manifest = manifestOf(join(out, "xcl-lang-darwin-x64-1.2.3.tgz"));
+  const manifest = manifestOf(join(out, "jumppad-labs-xcl-lang-darwin-x64-1.2.3.tgz"));
 
   assert.deepEqual(manifest.os, ["darwin"]);
   assert.deepEqual(manifest.cpu, ["x64"]);
@@ -136,7 +136,7 @@ test("a macOS package declares its operating system and CPU and no C library", {
 test("a Windows package declares its operating system and CPU and no C library", { skip: process.platform === "win32" }, (t) => {
   const { out } = assembled(t);
 
-  const manifest = manifestOf(join(out, "xcl-lang-win32-arm64-1.2.3.tgz"));
+  const manifest = manifestOf(join(out, "jumppad-labs-xcl-lang-win32-arm64-1.2.3.tgz"));
 
   assert.deepEqual(manifest.os, ["win32"]);
   assert.deepEqual(manifest.cpu, ["arm64"]);
@@ -147,14 +147,14 @@ test("xcl-lang lists all eight as optional dependencies at the same version", { 
   const { out } = assembled(t);
 
   assert.deepEqual(manifestOf(join(out, "xcl-lang-1.2.3.tgz")).optionalDependencies, {
-    "xcl-lang-linux-x64-gnu": VERSION,
-    "xcl-lang-linux-x64-musl": VERSION,
-    "xcl-lang-linux-arm64-gnu": VERSION,
-    "xcl-lang-linux-arm64-musl": VERSION,
-    "xcl-lang-darwin-x64": VERSION,
-    "xcl-lang-darwin-arm64": VERSION,
-    "xcl-lang-win32-x64": VERSION,
-    "xcl-lang-win32-arm64": VERSION,
+    "@jumppad-labs/xcl-lang-linux-x64-gnu": VERSION,
+    "@jumppad-labs/xcl-lang-linux-x64-musl": VERSION,
+    "@jumppad-labs/xcl-lang-linux-arm64-gnu": VERSION,
+    "@jumppad-labs/xcl-lang-linux-arm64-musl": VERSION,
+    "@jumppad-labs/xcl-lang-darwin-x64": VERSION,
+    "@jumppad-labs/xcl-lang-darwin-arm64": VERSION,
+    "@jumppad-labs/xcl-lang-win32-x64": VERSION,
+    "@jumppad-labs/xcl-lang-win32-arm64": VERSION,
   });
 });
 

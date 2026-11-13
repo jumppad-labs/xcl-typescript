@@ -13,7 +13,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import { createConfig, LocalRegistry } from "../../src/index.js";
+import { Config, LocalRegistry } from "../../src/index.js";
 import type { Entity } from "../../src/index.js";
 import { isolateHome, missingEngine, sharedDirectory, testDirectory } from "../helpers/engine.js";
 import {
@@ -61,10 +61,10 @@ test("the test plugin applies from the GitHub registry", { skip }, async (t) => 
   }
   const { configPath, directory } = configPathFor(t);
 
-  await using config = await createConfig({
+  await using config = await new Config({
     registries: [githubRegistry(release.cacheDir, { trustedKeys: [trustedKey()] })],
     statePath: join(directory, "state"),
-  });
+  }).setup();
   await config.apply(configPath);
   const applied = await config.findByType("test", "item");
   const first = await config.find(FIRST_ADDRESS);
@@ -84,7 +84,7 @@ test("the test plugin applies from its binary's path", { skip }, async (t) => {
   }
   const { configPath, directory } = configPathFor(t);
 
-  await using config = await createConfig({ registries: [pathRegistry(release)], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [pathRegistry(release)], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   const first = await config.find(FIRST_ADDRESS);
   const second = await config.find(SECOND_ADDRESS);
@@ -111,7 +111,7 @@ test("the test plugin applies from the directory it is in", { skip }, async (t) 
 
   const registry = new LocalRegistry();
   registry.registerPluginDirectory(release.entry);
-  await using config = await createConfig({ registries: [registry], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [registry], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   const first = await config.find(FIRST_ADDRESS);
   const second = await config.find(SECOND_ADDRESS);
@@ -129,7 +129,7 @@ test("plugin entities read back as generic entities", { skip }, async (t) => {
   }
   const { configPath, directory } = configPathFor(t);
 
-  await using config = await createConfig({ registries: [pathRegistry(release)], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [pathRegistry(release)], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   const first = await config.find(FIRST_ADDRESS);
   const second = await config.find(SECOND_ADDRESS);
@@ -157,7 +157,7 @@ test("items are created and destroyed in dependency order", { skip }, async (t) 
   }
   const { configPath, directory } = configPathFor(t);
 
-  await using config = await createConfig({ registries: [pathRegistry(release)], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [pathRegistry(release)], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   await config.destroy();
 
@@ -176,7 +176,7 @@ test("a sensitive setting is redacted in a lookup", { skip }, async (t) => {
   }
   const { configPath, directory } = configPathFor(t);
 
-  await using config = await createConfig({ registries: [pathRegistry(release)], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [pathRegistry(release)], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   const first = await config.find(FIRST_ADDRESS);
   await config.destroy();

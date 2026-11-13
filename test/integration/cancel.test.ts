@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import { CancelledError, createConfig, LocalRegistry, type Config } from "../../src/index.js";
+import { CancelledError, Config, LocalRegistry } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, sharedDirectory, SLOW_PLUGIN, testDirectory, writeConfig } from "../helpers/engine.js";
 import { installedRelease, readOperations, type ReleaseFiles } from "../helpers/plugins.js";
 
@@ -96,7 +96,7 @@ async function applyUpToGate(t: TestContext, release: ReleaseFiles): Promise<Gat
   const atGate = new Promise<void>((resolve) => {
     reachGate = resolve;
   });
-  const config = await createConfig({
+  const config = await new Config({
     registries: [registryFor(release)],
     statePath: state,
     onEvent: (event) => {
@@ -104,7 +104,7 @@ async function applyUpToGate(t: TestContext, release: ReleaseFiles): Promise<Gat
         reachGate();
       }
     },
-  });
+  }).setup();
   t.after(() => config.close());
 
   const controller = new AbortController();
@@ -155,7 +155,7 @@ test("without an abort the item behind the gate is created", { skip }, async (t)
   const directory = testDirectory(t);
   const log = join(directory, "ops.jsonl");
   const path = writeConfig(directory, "main.xcl", gatedConfig(log));
-  await using config = await createConfig({ registries: [registryFor(release)], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [registryFor(release)], statePath: join(directory, "state") }).setup();
 
   await config.apply(path);
 
@@ -217,7 +217,7 @@ test("an apply that was never let start records nothing and saves nothing", { sk
   const log = join(directory, "ops.jsonl");
   const state = join(directory, "state");
   const path = writeConfig(directory, "main.xcl", gatedConfig(log));
-  await using config = await createConfig({ registries: [registryFor(release)], statePath: state });
+  await using config = await new Config({ registries: [registryFor(release)], statePath: state }).setup();
 
   await assert.rejects(config.apply(path, { signal: AbortSignal.abort() }), CancelledError);
 

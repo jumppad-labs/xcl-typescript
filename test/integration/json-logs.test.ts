@@ -8,7 +8,7 @@ import { test, type TestContext } from "node:test";
 import pino from "pino";
 import winston from "winston";
 
-import { createConfig, LocalRegistry, type Config } from "../../src/index.js";
+import { Config, LocalRegistry } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, RECORDING_PLUGIN, ROOT, testDirectory } from "../helpers/engine.js";
 
 const needsPlugin = missingEngine() || missingPlugin(RECORDING_PLUGIN);
@@ -30,7 +30,7 @@ Blocks of type "nope" are not expected here.`;
 async function rejected(t: TestContext): Promise<Error> {
   const local = new LocalRegistry();
   local.registerExternalPlugin(pluginPath(RECORDING_PLUGIN));
-  const config: Config = await createConfig({ registries: [local], statePath: join(testDirectory(t), "state") });
+  const config: Config = await new Config({ registries: [local], statePath: join(testDirectory(t), "state") }).setup();
   t.after(() => config.close());
   const error = await config.apply(FIXTURE).catch((caught: unknown) => caught);
   assert.ok(error instanceof Error);

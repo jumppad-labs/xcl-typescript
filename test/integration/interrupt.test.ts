@@ -156,13 +156,13 @@ function savedAddresses(state: string): string[] {
 
 /** The start of a scenario: a configuration printing when `two` starts, and its engine's process id. */
 function openConfigSource(directory: string): string {
-  return `import { CancelledError, createConfig, interruptSignal, LocalRegistry } from ${JSON.stringify(SDK_MODULE)};
+  return `import { CancelledError, Config, interruptSignal, LocalRegistry } from ${JSON.stringify(SDK_MODULE)};
 import { sharedTransport } from ${JSON.stringify(TRANSPORT_MODULE)};
 
 const registry = new LocalRegistry();
 registry.registerExternalPlugin(${JSON.stringify(pluginPath(SLOW_PLUGIN))});
 
-const config = await createConfig({
+const config = await new Config({
   registries: [registry],
   statePath: ${JSON.stringify(join(directory, "state"))},
   onEvent: (event) => {
@@ -170,7 +170,7 @@ const config = await createConfig({
       console.log("two:started");
     }
   },
-});
+}).setup();
 console.log("pid:" + sharedTransport().pid);
 `;
 }
@@ -271,12 +271,12 @@ test("importing the package and running an apply adds no SIGINT listener", { ski
 
   const script = await runScenario(
     `console.log("before-import:" + process.listenerCount("SIGINT"));
-const { createConfig, LocalRegistry } = await import(${JSON.stringify(SDK_MODULE)});
+const { Config, LocalRegistry } = await import(${JSON.stringify(SDK_MODULE)});
 console.log("after-import:" + process.listenerCount("SIGINT"));
 
 const registry = new LocalRegistry();
 registry.registerExternalPlugin(${JSON.stringify(pluginPath(SLOW_PLUGIN))});
-const config = await createConfig({
+const config = await new Config({
   registries: [registry],
   statePath: ${JSON.stringify(join(directory, "state"))},
   onEvent: (event) => {
@@ -284,7 +284,7 @@ const config = await createConfig({
       console.log("during-apply:" + process.listenerCount("SIGINT"));
     }
   },
-});
+}).setup();
 console.log("after-create:" + process.listenerCount("SIGINT"));
 await config.apply(${JSON.stringify(path)});
 console.log("after-apply:" + process.listenerCount("SIGINT"));

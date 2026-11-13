@@ -1,5 +1,5 @@
 {
-  "name": "xcl-lang-linux-x64-gnu",
+  "name": "@jumppad-labs/xcl-lang-linux-x64-gnu",
   "version": "0.0.0-dev",
   "description": "The xcl engine for linux x64 (glibc), used by xcl-lang.",
   "license": "Apache-2.0",

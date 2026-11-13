@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test, type TestContext } from "node:test";
 
-import { createConfigWith, type Config } from "../../src/config.js";
+import { configWith, type Config } from "../../src/config.js";
 import { CancelledError, ConfigError } from "../../src/errors.js";
 import { Client } from "../../src/internal/client.js";
 import { CancelResponseSchema, CreateConfigResponseSchema, PollResponseSchema, StartOperationResponseSchema } from "../../src/internal/core/xcl/core/v1/core_pb.js";
@@ -51,7 +51,7 @@ function engine(): FakeTransport {
 }
 
 function open(transport: FakeTransport): Promise<Config> {
-  return createConfigWith(new Client(transport), {});
+  return configWith(new Client(transport), {}).setup();
 }
 
 /** Waits for `condition`, checking between turns of the event loop. */

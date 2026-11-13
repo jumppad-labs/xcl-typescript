@@ -1031,64 +1031,64 @@ test("a missing XCL_CORE_PATH throws EngineNotFoundError", () => {
 test("an empty XCL_CORE_PATH falls through to the platform package", () => {
   const program = locateEngine(search({ env: { XCL_CORE_PATH: "" } }));
 
-  assert.equal(program, join("/packages/xcl-lang-linux-x64-gnu", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-linux-x64-gnu", "bin", "xcl-core"));
 });
 
-test("linux x64 glibc picks xcl-lang-linux-x64-gnu", () => {
+test("linux x64 glibc picks @jumppad-labs/xcl-lang-linux-x64-gnu", () => {
   const program = locateEngine(search({ platform: "linux", arch: "x64", libc: () => "gnu" }));
 
-  assert.equal(program, join("/packages/xcl-lang-linux-x64-gnu", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-linux-x64-gnu", "bin", "xcl-core"));
 });
 
-test("linux x64 musl picks xcl-lang-linux-x64-musl", () => {
+test("linux x64 musl picks @jumppad-labs/xcl-lang-linux-x64-musl", () => {
   const program = locateEngine(search({ platform: "linux", arch: "x64", libc: () => "musl" }));
 
-  assert.equal(program, join("/packages/xcl-lang-linux-x64-musl", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-linux-x64-musl", "bin", "xcl-core"));
 });
 
-test("linux arm64 glibc picks xcl-lang-linux-arm64-gnu", () => {
+test("linux arm64 glibc picks @jumppad-labs/xcl-lang-linux-arm64-gnu", () => {
   const program = locateEngine(search({ platform: "linux", arch: "arm64", libc: () => "gnu" }));
 
-  assert.equal(program, join("/packages/xcl-lang-linux-arm64-gnu", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-linux-arm64-gnu", "bin", "xcl-core"));
 });
 
-test("linux arm64 musl picks xcl-lang-linux-arm64-musl", () => {
+test("linux arm64 musl picks @jumppad-labs/xcl-lang-linux-arm64-musl", () => {
   const program = locateEngine(search({ platform: "linux", arch: "arm64", libc: () => "musl" }));
 
-  assert.equal(program, join("/packages/xcl-lang-linux-arm64-musl", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-linux-arm64-musl", "bin", "xcl-core"));
 });
 
-test("darwin x64 picks xcl-lang-darwin-x64", () => {
+test("darwin x64 picks @jumppad-labs/xcl-lang-darwin-x64", () => {
   const program = locateEngine(search({ platform: "darwin", arch: "x64" }));
 
-  assert.equal(program, join("/packages/xcl-lang-darwin-x64", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-darwin-x64", "bin", "xcl-core"));
 });
 
-test("darwin arm64 picks xcl-lang-darwin-arm64", () => {
+test("darwin arm64 picks @jumppad-labs/xcl-lang-darwin-arm64", () => {
   const program = locateEngine(search({ platform: "darwin", arch: "arm64" }));
 
-  assert.equal(program, join("/packages/xcl-lang-darwin-arm64", "bin", "xcl-core"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-darwin-arm64", "bin", "xcl-core"));
 });
 
-test("win32 x64 picks xcl-lang-win32-x64 and its .exe", () => {
+test("win32 x64 picks @jumppad-labs/xcl-lang-win32-x64 and its .exe", () => {
   const program = locateEngine(search({ platform: "win32", arch: "x64" }));
 
-  assert.equal(program, join("/packages/xcl-lang-win32-x64", "bin", "xcl-core.exe"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-win32-x64", "bin", "xcl-core.exe"));
 });
 
-test("win32 arm64 picks xcl-lang-win32-arm64 and its .exe", () => {
+test("win32 arm64 picks @jumppad-labs/xcl-lang-win32-arm64 and its .exe", () => {
   const program = locateEngine(search({ platform: "win32", arch: "arm64" }));
 
-  assert.equal(program, join("/packages/xcl-lang-win32-arm64", "bin", "xcl-core.exe"));
+  assert.equal(program, join("/packages/@jumppad-labs/xcl-lang-win32-arm64", "bin", "xcl-core.exe"));
 });
 
 test("a missing package on glibc Linux names the package and how to install it", () => {
   const error = errorFrom(() => locateEngine(search({ libc: () => "gnu", resolvePackage: notInstalled })));
 
   assert.ok(error instanceof EngineNotFoundError);
-  assert.equal(error.packageName, "xcl-lang-linux-x64-gnu");
-  assert.ok(error.message.includes("xcl-lang-linux-x64-gnu"));
-  assert.ok(error.message.includes("npm install xcl-lang-linux-x64-gnu"));
+  assert.equal(error.packageName, "@jumppad-labs/xcl-lang-linux-x64-gnu");
+  assert.ok(error.message.includes("@jumppad-labs/xcl-lang-linux-x64-gnu"));
+  assert.ok(error.message.includes("npm install @jumppad-labs/xcl-lang-linux-x64-gnu"));
   assert.ok(error.message.includes("glibc"));
 });
 
@@ -1096,8 +1096,8 @@ test("a missing package on musl Linux names the package and how to install it", 
   const error = errorFrom(() => locateEngine(search({ libc: () => "musl", resolvePackage: notInstalled })));
 
   assert.ok(error instanceof EngineNotFoundError);
-  assert.equal(error.packageName, "xcl-lang-linux-x64-musl");
-  assert.ok(error.message.includes("npm install xcl-lang-linux-x64-musl"));
+  assert.equal(error.packageName, "@jumppad-labs/xcl-lang-linux-x64-musl");
+  assert.ok(error.message.includes("npm install @jumppad-labs/xcl-lang-linux-x64-musl"));
   assert.ok(error.message.includes("musl"));
 });
 
@@ -1105,24 +1105,24 @@ test("a missing package on macOS names the package and how to install it", () =>
   const error = errorFrom(() => locateEngine(search({ platform: "darwin", arch: "arm64", resolvePackage: notInstalled })));
 
   assert.ok(error instanceof EngineNotFoundError);
-  assert.equal(error.packageName, "xcl-lang-darwin-arm64");
-  assert.ok(error.message.includes("npm install xcl-lang-darwin-arm64"));
+  assert.equal(error.packageName, "@jumppad-labs/xcl-lang-darwin-arm64");
+  assert.ok(error.message.includes("npm install @jumppad-labs/xcl-lang-darwin-arm64"));
 });
 
 test("a missing package on Windows names the package and how to install it", () => {
   const error = errorFrom(() => locateEngine(search({ platform: "win32", arch: "x64", resolvePackage: notInstalled })));
 
   assert.ok(error instanceof EngineNotFoundError);
-  assert.equal(error.packageName, "xcl-lang-win32-x64");
-  assert.ok(error.message.includes("npm install xcl-lang-win32-x64"));
+  assert.equal(error.packageName, "@jumppad-labs/xcl-lang-win32-x64");
+  assert.ok(error.message.includes("npm install @jumppad-labs/xcl-lang-win32-x64"));
 });
 
 test("a package installed without its binary throws EngineNotFoundError naming the package", () => {
   const error = errorFrom(() => locateEngine(search({ exists: () => false })));
 
   assert.ok(error instanceof EngineNotFoundError);
-  assert.equal(error.packageName, "xcl-lang-linux-x64-gnu");
-  assert.ok(error.message.includes("npm install xcl-lang-linux-x64-gnu"));
+  assert.equal(error.packageName, "@jumppad-labs/xcl-lang-linux-x64-gnu");
+  assert.ok(error.message.includes("npm install @jumppad-labs/xcl-lang-linux-x64-gnu"));
 });
 
 test("an unsupported operating system throws EngineNotFoundError", () => {
@@ -1149,7 +1149,7 @@ test("platformPackage answers undefined for an unsupported architecture", () => 
 });
 
 test("platformPackage takes Linux without a known C library as glibc", () => {
-  assert.equal(platformPackage("linux", "x64", undefined), "xcl-lang-linux-x64-gnu");
+  assert.equal(platformPackage("linux", "x64", undefined), "@jumppad-labs/xcl-lang-linux-x64-gnu");
 });
 
 test("detectLibc names a C library", { skip: process.platform !== "linux" }, () => {

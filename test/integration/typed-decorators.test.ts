@@ -2,7 +2,7 @@
  * The same class definitions, compiled once with standard decorators and once
  * with legacy decorators, validate and apply the same configuration and return
  * the same entities. Each compiled tree carries its own copy of the SDK, so a
- * tree's classes are used with that tree's `createConfig`.
+ * tree's classes are used with that tree's `Config`.
  */
 
 import assert from "node:assert/strict";
@@ -51,13 +51,15 @@ async function appliedIn(t: TestContext, mode: string): Promise<{ app: LoadedApp
   const tree = join(ROOT, "build", `decorators-${mode}`);
   const sdk = (await import(pathToFileURL(join(tree, "src", "index.js")).href)) as Record<string, never>;
   const entities = (await import(pathToFileURL(join(tree, "test", "decorators", "entities.js")).href)) as Record<string, new () => object>;
-  const { createConfig, LocalRegistry } = sdk as unknown as {
-    createConfig: (options: object) => Promise<{
-      validate(path: string): Promise<void>;
-      apply(path: string): Promise<void>;
-      find(type: unknown, address: string): Promise<object>;
-      close(): Promise<void>;
-    }>;
+  const { Config, LocalRegistry } = sdk as unknown as {
+    Config: new (options: object) => {
+      setup(): Promise<{
+        validate(path: string): Promise<void>;
+        apply(path: string): Promise<void>;
+        find(type: unknown, address: string): Promise<object>;
+        close(): Promise<void>;
+      }>;
+    };
     LocalRegistry: new () => { register(...classes: unknown[]): void };
   };
 
@@ -65,7 +67,7 @@ async function appliedIn(t: TestContext, mode: string): Promise<{ app: LoadedApp
   const path = writeConfig(directory, "main.xcl", CONFIG);
   const local = new LocalRegistry();
   local.register(entities.App, entities.Postgres);
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
 
   await config.validate(path);

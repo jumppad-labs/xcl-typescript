@@ -8,7 +8,7 @@
  *       }
  *
  * ```ts
- * const cfg = await createConfig({
+ * const cfg = new Config({
  *   onEvent: prettylog.handler({ level: prettylog.levelFromEnv() }),
  *   eventData: EventDataLevel.Processed, // puts each created entity on its event
  * });

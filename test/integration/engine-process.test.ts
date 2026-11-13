@@ -20,7 +20,7 @@ const needsPlugins = needsEngine || missingPlugin(SLOW_PLUGIN) || missingPlugin(
 const posixOnly = process.platform === "win32" ? "POSIX signals are not available on Windows" : false;
 
 const IMPORTS = `
-import { createConfig, LocalRegistry, EngineExitedError } from ${JSON.stringify(SDK_MODULE)};
+import { Config, LocalRegistry, EngineExitedError } from ${JSON.stringify(SDK_MODULE)};
 import { sharedTransport } from ${JSON.stringify(TRANSPORT_MODULE)};
 `;
 
@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 
 const configs = [];
 for (let index = 0; index < 3; index += 1) {
-  configs.push(await createConfig());
+  configs.push(await new Config().setup());
   console.log("pid:" + sharedTransport().pid);
 }
 
@@ -85,7 +85,7 @@ test("three configurations share one engine and closing the last leaves none run
 // -- a host that never closes --------------------------------------------------
 
 const EXIT_WITHOUT_CLOSING = `${IMPORTS}
-await createConfig();
+await new Config().setup();
 console.log("pid:" + sharedTransport().pid);
 `;
 
@@ -103,7 +103,7 @@ test("a script that never calls close still exits and leaves no engine running",
 // -- a host that is killed ------------------------------------------------------
 
 const WAIT_WITH_ENGINE = `${IMPORTS}
-await createConfig();
+await new Config().setup();
 console.log("pid:" + sharedTransport().pid);
 await new Promise((resolve) => setTimeout(resolve, 60_000));
 `;
@@ -159,7 +159,7 @@ const registry = new LocalRegistry();
 registry.registerExternalPlugin(${JSON.stringify(pluginPath(SLOW_PLUGIN))});
 registry.registerExternalPlugin(${JSON.stringify(pluginPath(RECORDING_PLUGIN))});
 
-const config = await createConfig({ registries: [registry], statePath: ${JSON.stringify(join(directory, "state"))} });
+const config = await new Config({ registries: [registry], statePath: ${JSON.stringify(join(directory, "state"))} }).setup();
 const pid = sharedTransport().pid;
 console.log("pid:" + pid);
 
@@ -206,7 +206,7 @@ await config.close();
 // the host carries on: a new configuration starts a new engine and applies
 const fresh = new LocalRegistry();
 fresh.registerExternalPlugin(${JSON.stringify(pluginPath(SLOW_PLUGIN))});
-const replacement = await createConfig({ registries: [fresh], statePath: ${JSON.stringify(join(directory, "state-again"))} });
+const replacement = await new Config({ registries: [fresh], statePath: ${JSON.stringify(join(directory, "state-again"))} }).setup();
 console.log("new-pid:" + sharedTransport().pid);
 await replacement.apply(${JSON.stringify(again)});
 const entity = await replacement.find("resource.slow.again");
@@ -251,7 +251,7 @@ test("the host carries on after the engine dies and a new configuration works", 
 
 const FIRST_CONFIG_TIMED = `${IMPORTS}
 const began = performance.now();
-const config = await createConfig();
+const config = await new Config().setup();
 const took = performance.now() - began;
 await config.close();
 console.log("took:" + took);
@@ -262,5 +262,5 @@ test("the first configuration in a process is created within one second", { skip
 
   assert.equal(script.exitCode, 0, script.stderr);
   const took = Number(script.values("took:")[0]);
-  assert.ok(took < 1000, `the first createConfig took ${took}ms`);
+  assert.ok(took < 1000, `the first setup took ${took}ms`);
 });

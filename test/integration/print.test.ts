@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import { Attribute, Computed, createConfig, Entity, formatError, Int, LocalRegistry, Meta, printDiff, Sensitive, type Config, type Formatter, type Token } from "../../src/index.js";
+import { Attribute, Computed, Config, Entity, formatError, Int, LocalRegistry, Meta, printDiff, Sensitive, type Formatter, type Token } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, SLOW_PLUGIN, testDirectory, writeConfig } from "../helpers/engine.js";
 
 const skip = missingEngine();
@@ -49,7 +49,7 @@ async function applied(t: TestContext, text: string): Promise<{ config: Config; 
   const path = writeConfig(directory, "main.xcl", text);
   const local = new LocalRegistry();
   local.register(App);
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
   await config.apply(path);
   return { config, path };
@@ -135,7 +135,7 @@ test("a change summary gives Go's text and its labelled text joins to it", { ski
   const path = writeConfig(directory, "main.xcl", 'resource "slow" "one" {\n  delay_ms = 1\n}\n');
   const local = new LocalRegistry();
   local.registerExternalPlugin(pluginPath(SLOW_PLUGIN));
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
   const diff = await config.diff(path);
   let text = "";
@@ -149,7 +149,7 @@ test("a user's format receives a change summary's whole text in one call", { ski
   const path = writeConfig(directory, "main.xcl", 'resource "slow" "one" {\n  delay_ms = 1\n}\n');
   const local = new LocalRegistry();
   local.registerExternalPlugin(pluginPath(SLOW_PLUGIN));
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
   const diff = await config.diff(path);
   const calls: (readonly Token[])[] = [];
@@ -165,7 +165,7 @@ test("a report's labelled text joins to its plain text", { skip }, async (t) => 
   const path = writeConfig(directory, "main.xcl", 'app "web" {\n  image = "nginx"\n  nope {\n  }\n}\n');
   const local = new LocalRegistry();
   local.register(App);
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
   const error = await config.validate(path).catch((caught: unknown) => caught);
   assert.equal((error as { tokens: Token[] }).tokens.map((token) => token.text).join(""), formatError(error, { width: 0 }));

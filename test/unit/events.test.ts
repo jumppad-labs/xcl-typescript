@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { create, fromBinary } from "@bufbuild/protobuf";
 
-import { createConfigWith } from "../../src/config.js";
+import { configWith } from "../../src/config.js";
 import { Attribute } from "../../src/decorators.js";
 import { Entity, Meta } from "../../src/entity.js";
 import { NotFoundError } from "../../src/errors.js";
@@ -119,7 +119,7 @@ test("unparseable metadata is kept as raw text", () => {
 test("events reach the handler in order", async () => {
   const seen: string[] = [];
   const transport = engine().queue("Poll", () => eventTask("a"), () => eventTask("b"), () => eventTask("c"), finished);
-  const config = await createConfigWith(new Client(transport), { onEvent: (event) => void seen.push(event.resourceId) });
+  const config = await configWith(new Client(transport), { onEvent: (event) => void seen.push(event.resourceId) }).setup();
 
   await config.apply("/x");
 
@@ -129,13 +129,13 @@ test("events reach the handler in order", async () => {
 test("an async handler is awaited before the next event", async () => {
   const seen: string[] = [];
   const transport = engine().queue("Poll", () => eventTask("a"), () => eventTask("b"), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     onEvent: async (event) => {
       seen.push(`start ${event.resourceId}`);
       await new Promise((resolve) => setTimeout(resolve, 10));
       seen.push(`end ${event.resourceId}`);
     },
-  });
+  }).setup();
 
   await config.apply("/x");
 
@@ -145,12 +145,12 @@ test("an async handler is awaited before the next event", async () => {
 test("the operation does not settle until every handler has finished", async () => {
   let handled = false;
   const transport = engine().queue("Poll", () => eventTask("a"), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     onEvent: async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       handled = true;
     },
-  });
+  }).setup();
 
   await config.apply("/x");
 
@@ -166,14 +166,14 @@ test("a handler's exception becomes a warning and the operation carries on", asy
   t.after(() => process.off("warning", listener));
   const seen: string[] = [];
   const transport = engine().queue("Poll", () => eventTask("a"), () => eventTask("b"), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     onEvent: (event) => {
       seen.push(event.resourceId);
       if (event.resourceId === "a") {
         throw new Error("the handler broke");
       }
     },
-  });
+  }).setup();
 
   await config.apply("/x");
   await new Promise((resolve) => setImmediate(resolve));
@@ -185,7 +185,7 @@ test("a handler's exception becomes a warning and the operation carries on", asy
 test("creating with a handler asks for events", async () => {
   const transport = engine();
 
-  await createConfigWith(new Client(transport), { onEvent: () => {} });
+  await configWith(new Client(transport), { onEvent: () => {} }).setup();
 
   assert.equal(fromBinary(CreateConfigRequestSchema, transport.callsOf("CreateConfig")[0]?.request as Uint8Array).events, true);
 });
@@ -193,7 +193,7 @@ test("creating with a handler asks for events", async () => {
 test("creating with no handler asks for none", async () => {
   const transport = engine();
 
-  await createConfigWith(new Client(transport), {});
+  await configWith(new Client(transport), {}).setup();
 
   assert.equal(fromBinary(CreateConfigRequestSchema, transport.callsOf("CreateConfig")[0]?.request as Uint8Array).events, false);
 });
@@ -201,7 +201,7 @@ test("creating with no handler asks for none", async () => {
 test("the data level and buffer size reach the engine", async () => {
   const transport = engine();
 
-  await createConfigWith(new Client(transport), { onEvent: () => {}, eventData: EventDataLevel.Processed, eventBufferSize: 32 });
+  await configWith(new Client(transport), { onEvent: () => {}, eventData: EventDataLevel.Processed, eventBufferSize: 32 }).setup();
 
   const request = fromBinary(CreateConfigRequestSchema, transport.callsOf("CreateConfig")[0]?.request as Uint8Array);
   assert.equal(request.eventData, EventDataLevelMessage.EVENT_DATA_PROCESSED);

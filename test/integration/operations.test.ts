@@ -13,7 +13,7 @@ import { chmodSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { ConfigError, createConfig, EngineNotFoundError, LocalRegistry, NotFoundError, NotUniqueError, XclError } from "../../src/index.js";
+import { ConfigError, Config, EngineNotFoundError, LocalRegistry, NotFoundError, NotUniqueError, XclError } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, ROOT, SLOW_PLUGIN, testDirectory, writeConfig } from "../helpers/engine.js";
 import { missingBuild, runScenario, SDK_MODULE, TRANSPORT_MODULE } from "../helpers/script.js";
 
@@ -40,7 +40,7 @@ test("a missing address throws NotFoundError", { skip: needsPlugin }, async (t) 
 `,
   );
 
-  await using config = await createConfig({ registries: [slowRegistry()], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [slowRegistry()], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   const error = await config.find("resource.slow.absent").then(
     () => undefined,
@@ -68,7 +68,7 @@ resource "slow" "two" {
 `,
   );
 
-  await using config = await createConfig({ registries: [slowRegistry()], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [slowRegistry()], statePath: join(directory, "state") }).setup();
   await config.apply(configPath);
   const error = await config.findOne("resource", "slow").then(
     () => undefined,
@@ -95,7 +95,7 @@ test("invalid configuration throws ConfigError listing each problem with its fil
 `,
   );
 
-  await using config = await createConfig({ registries: [slowRegistry()], statePath: join(directory, "state") });
+  await using config = await new Config({ registries: [slowRegistry()], statePath: join(directory, "state") }).setup();
   const error = await config.validate(configPath).then(
     () => undefined,
     (reason: unknown) => reason,
@@ -159,10 +159,10 @@ test("a missing engine is named by EngineNotFoundError", { skip: needsEngine }, 
   const directory = testDirectory(t);
   const engine = join(directory, "no-such-engine");
   const source = `
-import { createConfig, EngineNotFoundError } from ${JSON.stringify(SDK_MODULE)};
+import { Config, EngineNotFoundError } from ${JSON.stringify(SDK_MODULE)};
 
 try {
-  await createConfig();
+  await new Config().setup();
   console.log("outcome:created");
 } catch (error) {
   console.log("outcome:" + error.constructor.name);
@@ -191,10 +191,10 @@ test("an engine of a different version is refused naming both", { skip: needsEng
   const shim = writeConfig(directory, "other-engine", `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeEngine)} "$@"\n`);
   chmodSync(shim, 0o755);
   const source = `
-import { createConfig, EngineVersionError } from ${JSON.stringify(SDK_MODULE)};
+import { Config, EngineVersionError } from ${JSON.stringify(SDK_MODULE)};
 
 try {
-  await createConfig();
+  await new Config().setup();
   console.log("outcome:accepted");
 } catch (error) {
   console.log("outcome:" + error.constructor.name);

@@ -13,7 +13,7 @@ import {
   Blocks,
   Computed,
   ConfigError,
-  createConfig,
+  Config,
   Entity,
   Int,
   Label,
@@ -23,7 +23,6 @@ import {
   NotRegisteredError,
   Sensitive,
   TypeMismatchError,
-  type Config,
 } from "../../src/index.js";
 import { isolateHome, missingEngine, testDirectory, writeConfig } from "../helpers/engine.js";
 
@@ -91,7 +90,7 @@ async function configured(t: TestContext, text: string, ...classes: (new () => o
   const path = writeConfig(directory, "main.xcl", text);
   const local = new LocalRegistry();
   local.register(...classes);
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
   return { config, path };
 }

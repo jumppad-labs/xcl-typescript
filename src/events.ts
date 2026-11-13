@@ -144,8 +144,8 @@ export interface ToLoggerOptions {
  * `duration` (in milliseconds), `error`, then the event's details by key.
  *
  * ```ts
- * const cfg = await createConfig({ onEvent: events.toLogger(pino()) });
- * const other = await createConfig({ onEvent: events.toLogger(winstonLogger, { order: "message-first" }) });
+ * const cfg = new Config({ onEvent: events.toLogger(pino()) });
+ * const other = new Config({ onEvent: events.toLogger(winstonLogger, { order: "message-first" }) });
  * ```
  */
 export function toLogger(logger: LevelLogger, options: ToLoggerOptions = {}): (event: Event) => void {

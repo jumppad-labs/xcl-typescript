@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import { Attribute, ConfigError, createConfig, Entity, Func, FunctionNameClashError, Int, LocalRegistry, Meta, type Config } from "../../src/index.js";
+import { Attribute, ConfigError, Config, Entity, Func, FunctionNameClashError, Int, LocalRegistry, Meta } from "../../src/index.js";
 import { isolateHome, missingEngine, testDirectory, writeConfig } from "../helpers/engine.js";
 
 const needsEngine = missingEngine();
@@ -45,7 +45,7 @@ function registry(): LocalRegistry {
 async function open(t: TestContext, text: string, local: LocalRegistry = registry()): Promise<{ config: Config; path: string }> {
   const directory = testDirectory(t);
   const path = writeConfig(directory, "main.xcl", text);
-  const config = await createConfig({ registries: [local], statePath: join(directory, "state") });
+  const config = await new Config({ registries: [local], statePath: join(directory, "state") }).setup();
   t.after(() => config.close());
   return { config, path };
 }
@@ -109,7 +109,7 @@ test("a name a builtin uses is refused with the name-clash error", { skip: needs
   const local = new LocalRegistry();
   local.registerFunctions(new Clash());
 
-  await assert.rejects(createConfig({ registries: [local] }), FunctionNameClashError);
+  await assert.rejects(new Config({ registries: [local] }).setup(), FunctionNameClashError);
 });
 
 test("a name another function uses is refused with the name-clash error", { skip: needsEngine }, async () => {
@@ -129,5 +129,5 @@ test("a name another function uses is refused with the name-clash error", { skip
   local.registerFunctions(new One());
   local.registerFunctions(new Two());
 
-  await assert.rejects(createConfig({ registries: [local] }), FunctionNameClashError);
+  await assert.rejects(new Config({ registries: [local] }).setup(), FunctionNameClashError);
 });

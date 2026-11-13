@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "entries": {
+    "gotchas/node-uncaught-ignores-custom-inspect.md": {
+      "created": "2026-11-10T09:17:22.261840702Z",
+      "tracked_since": "2026-11-10T09:17:22.261840702Z",
+      "discoveries": {
+        "count": 4,
+        "last": "2026-11-11T09:59:22.11106486Z",
+        "recent": [
+          {
+            "at": "2026-11-10T09:18:21.751959132Z"
+          },
+          {
+            "at": "2026-11-11T09:59:12.438136812Z"
+          },
+          {
+            "at": "2026-11-11T09:59:17.564882892Z"
+          },
+          {
+            "at": "2026-11-11T09:59:22.11106486Z"
+          }
+        ]
+      },
+      "retrievals": {
+        "count": 2,
+        "last": "2026-11-11T09:59:27.995136545Z",
+        "recent": [
+          {
+            "at": "2026-11-10T09:21:06.419605347Z",
+            "workflow": "plan",
+            "spec": "20261110084722-9e301981-typescript-sdk-reference"
+          },
+          {
+            "at": "2026-11-11T09:59:27.995136545Z"
+          }
+        ]
+      }
+    },
+    "gotchas/npm-spam-detection-platform-packages.md": {
+      "created": "2026-11-13T08:43:16.643192553Z",
+      "tracked_since": "2026-11-13T08:43:16.643192553Z",
+      "discoveries": {
+        "count": 0
+      },
+      "retrievals": {
+        "count": 1,
+        "last": "2026-11-13T08:49:07.873186353Z",
+        "recent": [
+          {
+            "at": "2026-11-13T08:49:07.873186353Z",
+            "workflow": "implement",
+            "spec": "20261016064106-8931613a-python-encode-entity"
+          }
+        ]
+      }
+    },
+    "gotchas/typedoc-throws-and-signature-text.md": {
+      "created": "2026-11-10T09:25:14.629899902Z",
+      "tracked_since": "2026-11-10T09:25:14.629899902Z",
+      "discoveries": {
+        "count": 0
+      },
+      "retrievals": {
+        "count": 0
+      }
+    }
+  }
+}

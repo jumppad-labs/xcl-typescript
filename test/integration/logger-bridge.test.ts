@@ -8,7 +8,7 @@ import { test, type TestContext } from "node:test";
 import pino from "pino";
 import winston from "winston";
 
-import { createConfig, events, LocalRegistry, type Event } from "../../src/index.js";
+import { Config, events, LocalRegistry, type Event } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, SLOW_PLUGIN, testDirectory, writeConfig } from "../helpers/engine.js";
 
 const needsPlugin = missingEngine() || missingPlugin(SLOW_PLUGIN);
@@ -26,14 +26,14 @@ async function apply(t: TestContext, onEvent: (event: Event) => void): Promise<E
   const local = new LocalRegistry();
   local.registerExternalPlugin(pluginPath(SLOW_PLUGIN));
   const seen: Event[] = [];
-  const config = await createConfig({
+  const config = await new Config({
     registries: [local],
     statePath: join(directory, "state"),
     onEvent: (event) => {
       seen.push(event);
       onEvent(event);
     },
-  });
+  }).setup();
   t.after(() => config.close());
   await config.apply(path);
   return seen;

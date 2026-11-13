@@ -1,5 +1,5 @@
-export { createConfig } from "./config.js";
-export type { Config, ConfigOptions, DiffOptions, EncodeOptions, OperationOptions, Paths, StateStore } from "./config.js";
+export { Config } from "./config.js";
+export type { ConfigOptions, DiffOptions, EncodeOptions, OperationOptions, Paths, StateStore } from "./config.js";
 export { Diff, UNKNOWN } from "./diff.js";
 export type { Change, Dependency, ResourceDiff, Summary } from "./diff.js";
 export * from "./errors.js";

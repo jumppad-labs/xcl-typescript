@@ -344,8 +344,8 @@ jobs:
           cp -r "$workspace/examples/getting-started/." "$project/"
           cp "$workspace/tarballs/"*.tgz "$project/"
           cd "$project"
-          npm install --no-audit --no-fund "./xcl-lang-$version.tgz" "./$package-$version.tgz" typescript@5.9.3 @types/node@22.20.5
-          test -x "node_modules/$package/bin/xcl-core$exe"
+          npm install --no-audit --no-fund "./xcl-lang-$version.tgz" "./jumppad-labs-$package-$version.tgz" typescript@5.9.3 @types/node@22.20.5
+          test -x "node_modules/@jumppad-labs/$package/bin/xcl-core$exe"
 
           # the install check: compiled against the installed types, and with
           # no XCL_CORE_PATH, so the engine comes from the platform package
@@ -359,7 +359,7 @@ jobs:
           cp -r "$workspace/build/test/test" build/test/test
           cp -r "$workspace/build/plugins" build/plugins
           node -e "require('fs').symlinkSync(require('path').resolve('node_modules/xcl-lang/dist'), 'build/test/src', 'junction')"
-          XCL_CORE_PATH="$(node -p "require('path').resolve('node_modules/$package/bin/xcl-core$exe')")"
+          XCL_CORE_PATH="$(node -p "require('path').resolve('node_modules/@jumppad-labs/$package/bin/xcl-core$exe')")"
           export XCL_CORE_PATH
           node --test --test-timeout=300000 "build/test/test/parity/*.test.js"
 
@@ -448,8 +448,8 @@ jobs:
             cp -r /work/examples/getting-started/. /project/
             cp /work/tarballs/*.tgz /project/
             cd /project
-            npm install --no-audit --no-fund "./xcl-lang-$version.tgz" "./$PACKAGE-$version.tgz" typescript@5.9.3 @types/node@22.20.5
-            test -x "node_modules/$PACKAGE/bin/xcl-core"
+            npm install --no-audit --no-fund "./xcl-lang-$version.tgz" "./jumppad-labs-$PACKAGE-$version.tgz" typescript@5.9.3 @types/node@22.20.5
+            test -x "node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core"
 
             npx tsc -p .
             output="$(node build/main.js)"
@@ -460,7 +460,7 @@ jobs:
             cp -r /work/build/test/test build/test/test
             cp -r /work/build/plugins build/plugins
             ln -s /project/node_modules/xcl-lang/dist build/test/src
-            XCL_CORE_PATH="/project/node_modules/$PACKAGE/bin/xcl-core" \
+            XCL_CORE_PATH="/project/node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core" \
               node --test --test-timeout=300000 "build/test/test/parity/*.test.js"'
 
       - name: Run the installed package with networking off

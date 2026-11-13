@@ -1,5 +1,5 @@
 {
-  "name": "xcl-lang-linux-x64-musl",
+  "name": "@jumppad-labs/xcl-lang-linux-x64-musl",
   "version": "0.0.0-dev",
   "description": "The xcl engine for linux x64 (musl), used by xcl-lang.",
   "license": "Apache-2.0",

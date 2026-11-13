@@ -281,7 +281,7 @@ export class EngineVersionError extends XclError {
 
 /**
  * The engine stopped while this package was using it. Every call waiting on
- * it throws this, and the next `createConfig` starts a fresh engine.
+ * it throws this, and the next call that needs the engine starts a fresh one.
  */
 export class EngineExitedError extends XclError {
   static override readonly code: string = "engine_exited";

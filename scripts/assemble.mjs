@@ -16,16 +16,16 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-/** Each platform package and the asset name of its engine archive. */
+/** Each platform package: its directory under npm/, its scoped name, and the asset name of its engine archive. */
 const TARGETS = [
-  { name: "xcl-lang-linux-x64-gnu", asset: "linux_amd64", windows: false },
-  { name: "xcl-lang-linux-x64-musl", asset: "linux_amd64_musl", windows: false },
-  { name: "xcl-lang-linux-arm64-gnu", asset: "linux_arm64", windows: false },
-  { name: "xcl-lang-linux-arm64-musl", asset: "linux_arm64_musl", windows: false },
-  { name: "xcl-lang-darwin-x64", asset: "darwin_amd64", windows: false },
-  { name: "xcl-lang-darwin-arm64", asset: "darwin_arm64", windows: false },
-  { name: "xcl-lang-win32-x64", asset: "windows_amd64", windows: true },
-  { name: "xcl-lang-win32-arm64", asset: "windows_arm64", windows: true },
+  { dir: "xcl-lang-linux-x64-gnu", name: "@jumppad-labs/xcl-lang-linux-x64-gnu", asset: "linux_amd64", windows: false },
+  { dir: "xcl-lang-linux-x64-musl", name: "@jumppad-labs/xcl-lang-linux-x64-musl", asset: "linux_amd64_musl", windows: false },
+  { dir: "xcl-lang-linux-arm64-gnu", name: "@jumppad-labs/xcl-lang-linux-arm64-gnu", asset: "linux_arm64", windows: false },
+  { dir: "xcl-lang-linux-arm64-musl", name: "@jumppad-labs/xcl-lang-linux-arm64-musl", asset: "linux_arm64_musl", windows: false },
+  { dir: "xcl-lang-darwin-x64", name: "@jumppad-labs/xcl-lang-darwin-x64", asset: "darwin_amd64", windows: false },
+  { dir: "xcl-lang-darwin-arm64", name: "@jumppad-labs/xcl-lang-darwin-arm64", asset: "darwin_arm64", windows: false },
+  { dir: "xcl-lang-win32-x64", name: "@jumppad-labs/xcl-lang-win32-x64", asset: "windows_amd64", windows: true },
+  { dir: "xcl-lang-win32-arm64", name: "@jumppad-labs/xcl-lang-win32-arm64", asset: "windows_arm64", windows: true },
 ];
 
 function parseArguments(argv) {
@@ -68,7 +68,7 @@ function fillPackage(target, archives, version) {
     } else {
       execFileSync("tar", ["-xzf", archive, "-C", unpacked]);
     }
-    const bin = join("npm", target.name, "bin");
+    const bin = join("npm", target.dir, "bin");
     mkdirSync(bin, { recursive: true });
     copyFileSync(join(unpacked, program), join(bin, program));
     chmodSync(join(bin, program), 0o755);
@@ -79,7 +79,7 @@ function fillPackage(target, archives, version) {
 
 function setVersions(version, tag) {
   for (const target of TARGETS) {
-    const path = join("npm", target.name, "package.json");
+    const path = join("npm", target.dir, "package.json");
     const manifest = readJson(path);
     manifest.version = version;
     writeJson(path, manifest);
@@ -112,7 +112,7 @@ if (build) {
   execFileSync("npm", ["run", "build"], { stdio: "inherit" });
 }
 for (const target of TARGETS) {
-  pack(join("npm", target.name), out);
+  pack(join("npm", target.dir), out);
 }
 pack(".", out);
 console.log(`assembled nine tarballs at ${version} in ${out}`);

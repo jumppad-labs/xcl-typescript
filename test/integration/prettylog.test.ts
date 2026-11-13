@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test, type TestContext } from "node:test";
 
-import { ConfigError, createConfig, EventDataLevel, LocalRegistry, prettylog, type Event, type LevelLogger } from "../../src/index.js";
+import { ConfigError, Config, EventDataLevel, LocalRegistry, prettylog, type Event, type LevelLogger } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, RECORDING_PLUGIN, ROOT, testDirectory, writeConfig } from "../helpers/engine.js";
 
 const needsPlugin = missingEngine() || missingPlugin(RECORDING_PLUGIN);
@@ -71,7 +71,7 @@ function builtins(directory: string): string {
 async function applyWith(t: TestContext, path: string, onEvent: (event: Event) => Promise<void>, eventData: EventDataLevel = EventDataLevel.Processed): Promise<void> {
   const local = new LocalRegistry();
   local.registerExternalPlugin(pluginPath(RECORDING_PLUGIN));
-  const config = await createConfig({ registries: [local], statePath: join(testDirectory(t), "state"), onEvent, eventData });
+  const config = await new Config({ registries: [local], statePath: join(testDirectory(t), "state"), onEvent, eventData }).setup();
   t.after(() => config.close());
   await config.apply(path);
 }

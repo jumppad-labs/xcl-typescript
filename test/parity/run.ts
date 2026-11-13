@@ -46,7 +46,7 @@ import { parseArgs, promisify } from "node:util";
 import { entityNameOf } from "../../src/decorators.js";
 import { GenericEntity, sourceOf, toSnake } from "../../src/hydrate.js";
 import {
-  createConfig,
+  Config,
   EventDataLevel,
   events,
   formatError,
@@ -54,7 +54,6 @@ import {
   prettylog,
   printDiff,
   XclError,
-  type Config,
   type ConfigOptions,
   type Diff,
   type EncodeOptions,
@@ -131,7 +130,7 @@ async function newConfig(fixture: Fixture, plugins: string, stateDir: string, tm
     variables[key] = typeof value === "string" ? value.replaceAll("<tmp>", tmp) : value;
   }
 
-  return createConfig({ registries: [local], statePath: stateDir, variables, ...extra });
+  return new Config({ registries: [local], statePath: stateDir, variables, ...extra }).setup();
 }
 
 /** One record written through the logging bridge: its level, message, resource and operation. */

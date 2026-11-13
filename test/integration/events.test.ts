@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import { Attribute, createConfig, Entity, type Event, EventDataLevel, LocalRegistry, Meta, Sensitive, type Config } from "../../src/index.js";
+import { Attribute, Config, Entity, type Event, EventDataLevel, LocalRegistry, Meta, Sensitive } from "../../src/index.js";
 import { isolateHome, missingEngine, missingPlugin, pluginPath, SLOW_PLUGIN, testDirectory, writeConfig } from "../helpers/engine.js";
 
 const needsPlugin = missingEngine() || missingPlugin(SLOW_PLUGIN);
@@ -39,7 +39,7 @@ async function applied(t: TestContext, eventData: EventDataLevel | undefined, on
   local.registerExternalPlugin(pluginPath(SLOW_PLUGIN));
   const events: Event[] = [];
   let created: Config | undefined;
-  const config = await createConfig({
+  const config = await new Config({
     registries: [local],
     statePath: join(directory, "state"),
     ...(eventData === undefined ? {} : { eventData }),
@@ -47,7 +47,7 @@ async function applied(t: TestContext, eventData: EventDataLevel | undefined, on
       events.push(event);
       return onEvent(event, created as Config);
     },
-  });
+  }).setup();
   created = config;
   t.after(() => config.close());
   await config.apply(path);

@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 
-import { createConfigWith, type Config } from "../../src/config.js";
+import { configWith, type Config } from "../../src/config.js";
 import { Func, Int } from "../../src/decorators.js";
 import { SchemaError } from "../../src/errors.js";
 import { Client } from "../../src/internal/client.js";
@@ -39,7 +39,7 @@ function engine(): FakeTransport {
 }
 
 async function open(transport: FakeTransport, registry: LocalRegistry): Promise<Config> {
-  return createConfigWith(new Client(transport), { registries: [registry] });
+  return configWith(new Client(transport), { registries: [registry] }).setup();
 }
 
 function answers(transport: FakeTransport): ReturnType<typeof decodeAnswer>[] {

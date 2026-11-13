@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 
-import { createConfigWith, type StateStore } from "../../src/config.js";
+import { configWith, type StateStore } from "../../src/config.js";
 import { InvalidArgumentError } from "../../src/errors.js";
 import { Client } from "../../src/internal/client.js";
 import {
@@ -59,7 +59,7 @@ function createRequest(transport: FakeTransport): ReturnType<typeof fromBinary<t
 
 test("a load task returns the store's records", async () => {
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.LOAD), finished);
-  const config = await createConfigWith(new Client(transport), { stateStore: store({ load: () => [encoder.encode('{"a":1}')] }) });
+  const config = await configWith(new Client(transport), { stateStore: store({ load: () => [encoder.encode('{"a":1}')] }) }).setup();
 
   await config.apply("/x");
 
@@ -69,13 +69,13 @@ test("a load task returns the store's records", async () => {
 test("a save task hands the store each record", async () => {
   let saved: Uint8Array[] = [];
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.SAVE, [encoder.encode("one"), encoder.encode("two")]), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     stateStore: store({
       save: (records) => {
         saved = records;
       },
     }),
-  });
+  }).setup();
 
   await config.apply("/x");
 
@@ -84,7 +84,7 @@ test("a save task hands the store each record", async () => {
 
 test("an exists task answers whether the store holds state", async () => {
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.EXISTS), finished);
-  const config = await createConfigWith(new Client(transport), { stateStore: store({ exists: () => true }) });
+  const config = await configWith(new Client(transport), { stateStore: store({ exists: () => true }) }).setup();
 
   await config.apply("/x");
 
@@ -94,13 +94,13 @@ test("an exists task answers whether the store holds state", async () => {
 test("a clear task clears the store", async () => {
   let cleared = false;
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.CLEAR), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     stateStore: store({
       clear: () => {
         cleared = true;
       },
     }),
-  });
+  }).setup();
 
   await config.apply("/x");
 
@@ -109,14 +109,14 @@ test("a clear task clears the store", async () => {
 
 test("asynchronous store methods are awaited", async () => {
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.LOAD), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     stateStore: store({
       load: async () => {
         await new Promise((resolve) => setTimeout(resolve, 5));
         return [encoder.encode("later")];
       },
     }),
-  });
+  }).setup();
 
   await config.apply("/x");
 
@@ -125,13 +125,13 @@ test("asynchronous store methods are awaited", async () => {
 
 test("a store's exception becomes the task's error with its message", async () => {
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.SAVE, [encoder.encode("x")]), finished);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     stateStore: store({
       save: () => {
         throw new Error("the disk is full");
       },
     }),
-  });
+  }).setup();
 
   await config.apply("/x");
 
@@ -142,7 +142,7 @@ test("a store's exception becomes the task's error with its message", async () =
 
 test("a state task with no store becomes the task's error", async () => {
   const transport = engine().queue("Poll", () => stateTask(1n, StateTask_Kind.LOAD), finished);
-  const config = await createConfigWith(new Client(transport), {});
+  const config = await configWith(new Client(transport), {}).setup();
 
   await config.apply("/x");
 
@@ -152,15 +152,15 @@ test("a state task with no store becomes the task's error", async () => {
 test("a store is declared as held by the host", async () => {
   const transport = engine();
 
-  await createConfigWith(new Client(transport), { stateStore: store() });
+  await configWith(new Client(transport), { stateStore: store() }).setup();
 
   assert.equal(createRequest(transport).stateStore?.kind.case, "host");
 });
 
-test("a state path and a state store together are refused", async () => {
+test("a state path and a state store together are refused", () => {
   const transport = engine();
 
-  await assert.rejects(createConfigWith(new Client(transport), { statePath: "/x", stateStore: store() }), InvalidArgumentError);
+  assert.throws(() => configWith(new Client(transport), { statePath: "/x", stateStore: store() }), InvalidArgumentError);
   assert.equal(transport.callsOf("CreateConfig").length, 0);
 });
 
@@ -168,7 +168,7 @@ test("a state mask reaches the engine", async () => {
   const transport = engine();
   const key = new Uint8Array(32).fill(7);
 
-  await createConfigWith(new Client(transport), { statePath: "/x", stateMask: aes256gcm(key) });
+  await configWith(new Client(transport), { statePath: "/x", stateMask: aes256gcm(key) }).setup();
 
   const mask = createRequest(transport).stateMask;
   assert.equal(mask?.kind.case, "aes256gcmKey");
@@ -178,7 +178,7 @@ test("a state mask reaches the engine", async () => {
 test("an event mask reaches the engine", async () => {
   const transport = engine();
 
-  await createConfigWith(new Client(transport), { eventMask: omit() });
+  await configWith(new Client(transport), { eventMask: omit() }).setup();
 
   assert.equal(createRequest(transport).eventMask?.kind.case, "omit");
 });
@@ -186,7 +186,7 @@ test("an event mask reaches the engine", async () => {
 test("noEventMask reaches the engine", async () => {
   const transport = engine();
 
-  await createConfigWith(new Client(transport), { noEventMask: true });
+  await configWith(new Client(transport), { noEventMask: true }).setup();
 
   assert.equal(createRequest(transport).noEventMask, true);
 });

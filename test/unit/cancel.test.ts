@@ -10,7 +10,7 @@ import { test } from "node:test";
 
 import { create, fromBinary } from "@bufbuild/protobuf";
 
-import { createConfigWith, type Config } from "../../src/config.js";
+import { configWith, type Config } from "../../src/config.js";
 import { Func } from "../../src/decorators.js";
 import { CancelledError, ConfigError } from "../../src/errors.js";
 import { Client } from "../../src/internal/client.js";
@@ -87,7 +87,7 @@ function engine(): FakeTransport {
 }
 
 function open(transport: FakeTransport): Promise<Config> {
-  return createConfigWith(new Client(transport), {});
+  return configWith(new Client(transport), {}).setup();
 }
 
 /** Waits for `condition`, checking between turns of the event loop. */
@@ -398,12 +398,12 @@ test("after a cancel the rejection does not wait for a stuck event handler", asy
   let handlerCalled = false;
   const held = heldPoll();
   const transport = engine().queue("Poll", eventTask, held.answer);
-  const config = await createConfigWith(new Client(transport), {
+  const config = await configWith(new Client(transport), {
     onEvent: () => {
       handlerCalled = true;
       return new Promise<void>(() => {});
     },
-  });
+  }).setup();
   const controller = new AbortController();
 
   const applying = config.apply("/x", { signal: controller.signal });
@@ -428,7 +428,7 @@ test("after a cancel the rejection does not wait for a stuck state task", async 
   };
   const held = heldPoll();
   const transport = engine().queue("Poll", saveTask, held.answer);
-  const config = await createConfigWith(new Client(transport), { stateStore: store });
+  const config = await configWith(new Client(transport), { stateStore: store }).setup();
   const controller = new AbortController();
 
   const applying = config.apply("/x", { signal: controller.signal });
@@ -453,7 +453,7 @@ test("after a cancel the rejection does not wait for a stuck function task", asy
   registry.registerFunctions(new Stuck());
   const held = heldPoll();
   const transport = engine().queue("Poll", () => functionTask("stuck"), held.answer);
-  const config = await createConfigWith(new Client(transport), { registries: [registry] });
+  const config = await configWith(new Client(transport), { registries: [registry] }).setup();
   const controller = new AbortController();
 
   const applying = config.apply("/x", { signal: controller.signal });

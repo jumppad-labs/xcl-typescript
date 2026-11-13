@@ -1,7 +1,7 @@
 /**
  * The subprocess transport: the only code that knows about the engine process.
  *
- * The engine is `xcl-core`, from this platform's `xcl-lang-*` package or from
+ * The engine is `xcl-core`, from this platform's `@jumppad-labs/xcl-lang-*` package or from
  * `XCL_CORE_PATH`. It is started on first use, one per module graph, so one
  * per process and one per worker thread, and every configuration created there
  * shares it. Frames cross its pipes as a 4-byte big-endian length followed by
@@ -49,10 +49,10 @@ export function platformPackage(platform: string, arch: string, libc: Libc | und
     return undefined;
   }
   if (platform === "linux") {
-    return `xcl-lang-linux-${arch}-${libc ?? "gnu"}`;
+    return `@jumppad-labs/xcl-lang-linux-${arch}-${libc ?? "gnu"}`;
   }
   if (platform === "darwin" || platform === "win32") {
-    return `xcl-lang-${platform}-${arch}`;
+    return `@jumppad-labs/xcl-lang-${platform}-${arch}`;
   }
   return undefined;
 }

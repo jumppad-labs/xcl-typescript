@@ -37,11 +37,11 @@ With a class the result is an instance of it; without one it is a generic `Entit
 
 The encoding options are all off by default: `IncludeComputed()` is `includeComputed`, `IncludeEmpty()` is `includeEmpty`, `RevealSensitive()` is `revealSensitive` and `ShowReferences()` is `showReferences`. The engine renders the text through the same encoder Go uses, so it is identical to Go's for the same entity and choices, which the parity suite checks for every fixture.
 
-`xcl.NewConfig(options...)` is `await createConfig({...})`, whose options are below.
+`xcl.NewConfig(options...)` is `new Config({...})`, whose options are below. Constructing it does no I/O: the configuration is created in the engine on its first call, where Go creates it in `NewConfig`. `await config.setup()` does that work early, for a program that wants to fail at start-up; Python's asyncio API calls it `open()`.
 
 ## Configuration options
 
-| Go (`xcl.NewConfig` option) | `createConfig({...})` |
+| Go (`xcl.NewConfig` option) | `new Config({...})` |
 |---|---|
 | `WithRegistry(r)` | `registries: [...]` |
 | `WithStatePath(dir)` | `statePath` |
