@@ -50,8 +50,9 @@ on:
 
 env:
   GO_VERSION: '1.27.0'
-  # what the tarballs and their engines are stamped with: never a published
-  # version, and the engine ref may be a branch or a commit, not a tag
+  # what the tarballs and their engines are stamped with, as both the package
+  # version and the engine tag: never a published version, and the engine ref
+  # may be a branch or a commit, not a tag
   TARBALL_TAG: v0.0.0-ci
   # what the getting-started example prints
   EXAMPLE_OUTPUT: test.item.second two first-one
@@ -242,7 +243,7 @@ jobs:
           ls -la archives
 
       - name: Assemble the tarballs
-        run: node scripts/assemble.mjs archives "$TARBALL_TAG" --out tarballs
+        run: node scripts/assemble.mjs archives "$TARBALL_TAG" "${TARBALL_TAG#v}" --out tarballs
 
       - uses: actions/upload-artifact@v4
         with:

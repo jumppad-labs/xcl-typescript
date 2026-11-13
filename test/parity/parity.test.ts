@@ -82,9 +82,24 @@ function firstDifference(left: unknown, right: unknown, path = ""): Difference |
   return undefined;
 }
 
+/**
+ * A record with every pretty log line's duration left out. Go and Node each
+ * time their own run, and both leave a zero duration out of the line, so an
+ * operation faster than the clock's resolution (about 15 ms on Windows) has no
+ * duration on one side and one on the other: whether a line has a duration is
+ * timing, not behaviour.
+ */
+function withoutDurations(record: JsonObject): JsonObject {
+  const lines = record.pretty_log;
+  if (!Array.isArray(lines)) {
+    return record;
+  }
+  return { ...record, pretty_log: lines.map((line: unknown) => (typeof line === "string" ? line.replace(/ duration=<duration>/g, "") : line)) };
+}
+
 /** Throws naming the fixture and the first path where the two records differ, with no key left out. */
 function assertSameRecord(name: string, go: JsonObject, node: JsonObject): void {
-  const found = firstDifference(go, node);
+  const found = firstDifference(withoutDurations(go), withoutDurations(node));
   if (found !== undefined) {
     const [path, left, right] = found;
     assert.fail(`fixture ${name}: the records differ at ${path}: go=${JSON.stringify(left)} node=${JSON.stringify(right)}`);
@@ -176,6 +191,22 @@ test("firstDifference names the root for lists of another length at the top", ()
 test("a difference fails naming the fixture and the first path", () => {
   assert.throws(() => assertSameRecord("basic_types", { entities: [{ port: 8080 }] }, { entities: [{ port: 9090 }] }), {
     message: "fixture basic_types: the records differ at entities[0].port: go=8080 node=9090",
+  });
+});
+
+test("a pretty log line with a duration on one side only is the same record", () => {
+  const go = { pretty_log: ["<time> INFO create success resource=resource.recording.second duration=<duration>"] };
+  const node = { pretty_log: ["<time> INFO create success resource=resource.recording.second"] };
+
+  assert.doesNotThrow(() => assertSameRecord("plugin_entities", go, node));
+});
+
+test("a pretty log line that differs apart from its duration fails naming the fixture and the line", () => {
+  const go = { pretty_log: ["<time> INFO create success resource=resource.recording.second duration=<duration>"] };
+  const node = { pretty_log: ["<time> INFO create success resource=resource.recording.first"] };
+
+  assert.throws(() => assertSameRecord("plugin_entities", go, node), {
+    message: 'fixture plugin_entities: the records differ at pretty_log[0]: go="<time> INFO create success resource=resource.recording.second" node="<time> INFO create success resource=resource.recording.first"',
   });
 });
 

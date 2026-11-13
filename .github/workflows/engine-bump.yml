@@ -1,14 +1,15 @@
 # Moves the engine pin to a new xcl release. The xcl release workflow
-# dispatches it (event xcl-release) with the new tag; it can also be run by
-# hand.
+# dispatches it (event xcl-release) with the new tag and its bump size,
+# major, minor or patch; it can also be run by hand.
 #
 # It writes the tag to xcl-ref.txt on the branch engine/<tag>, opens a pull
-# request and turns on auto-merge. Every write uses a token of the xcl release
-# bot GitHub App, since a pull request opened or merged with the built-in
-# GITHUB_TOKEN starts no workflows: the pull request's required checks run,
-# and when they pass it merges, and tag.yml tags the merge with the pinned tag,
-# which releases the package bundling the new engine. A pull request whose
-# checks fail stays open for a maintainer to fix on the same branch.
+# request labelled with the same bump size, and turns on auto-merge. Every
+# write uses a token of the xcl release bot GitHub App, since a pull request
+# opened or merged with the built-in GITHUB_TOKEN starts no workflows: the
+# pull request's required checks run, and when they pass it merges, and
+# tag.yml tags and releases the package bundling the new engine. A pull
+# request whose checks fail stays open for a maintainer to fix on the same
+# branch.
 #
 # A second run for the same tag resets the branch from main and updates the
 # pull request it already opened, rather than opening another.
@@ -24,6 +25,11 @@ on:
         description: The xcl tag to pin, e.g. v0.13.1
         required: true
         type: string
+      bump:
+        description: The engine release's size, mirrored on the pull request
+        required: true
+        type: choice
+        options: [major, minor, patch]
 
 concurrency:
   group: engine-bump-${{ github.event.client_payload.tag || inputs.tag }}
@@ -38,14 +44,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.client_payload.tag || inputs.tag }}
+      BUMP: ${{ github.event.client_payload.bump || inputs.bump }}
     steps:
-      - name: Check the tag
+      - name: Check the tag and size
         shell: bash
         run: |
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "the tag must look like v1.2.3, got '$TAG'"; exit 1
           fi
-          echo "pinning xcl $TAG"
+          case "$BUMP" in
+            major|minor|patch) ;;
+            *) echo "the bump must be major, minor or patch, got '$BUMP'"; exit 1 ;;
+          esac
+          echo "pinning xcl $TAG, a $BUMP release"
 
       - uses: actions/create-github-app-token@v1
         id: app
@@ -91,10 +102,11 @@ jobs:
           branch="engine/$TAG"
           pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
           if [ -z "$pr" ]; then
-            gh pr create --base main --head "$branch" \
+            gh pr create --base main --head "$branch" --label "$BUMP" \
               --title "Use xcl engine $TAG" \
-              --body "Moves the engine pin to [xcl $TAG](https://github.com/jumppad-labs/xcl/releases/tag/$TAG), so the next package bundles it. Opened by the engine bump workflow; it merges by itself once its checks pass, and merging it releases the package."
+              --body "Moves the engine pin to [xcl $TAG](https://github.com/jumppad-labs/xcl/releases/tag/$TAG), a $BUMP release, so the next package bundles it. Opened by the engine bump workflow; it merges by itself once its checks pass, and merging it releases the package."
           else
             echo "updating pull request #$pr"
+            gh pr edit "$pr" --add-label "$BUMP"
           fi
           gh pr merge "$branch" --auto --merge

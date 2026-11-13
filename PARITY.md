@@ -127,6 +127,10 @@ Go's pretty logger is an example (`example/prettylog`) that only its examples im
 | `prettylog.LevelEnv` | `prettylog.LEVEL_ENV` (`"XCL_LOG_LEVEL"`) |
 | `slog.Level` | `LogLevel`, one of the four level names |
 
+## Engine version
+
+A Go program compiles the engine in, so Go has no accessor for its version. This package runs the engine it bundles, the xcl release pinned in `xcl-ref.txt`, and `await engineVersion()` reports that engine's version, as Python's `xcl.engine_version()` does. It starts the engine if it is not running, and rejects with `EngineVersionError` for an engine of another version and `EngineNotFoundError` when there is none.
+
 ## Not applicable
 
 | Go | Why there is no TypeScript form |

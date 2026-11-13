@@ -4,7 +4,14 @@
  * archives: fills each platform package with its engine, sets every version,
  * and packs them.
  *
- * Usage: node scripts/assemble.mjs <archives-dir> <tag> [--out <dir>] [--no-build]
+ * Usage: node scripts/assemble.mjs <archives-dir> <engine-tag> <package-version> [--out <dir>] [--no-build]
+ *
+ * The package and the engine it bundles are versioned separately. The engine
+ * tag is the xcl release pinned in xcl-ref.txt, such as v0.13.1: it names the
+ * archives, xcl-core_0.13.1_<os>_<arch>[_musl], and is written to
+ * src/version.ts as ENGINE_VERSION, the engine the package checks for. The
+ * package version, such as 0.2.0, is every package's version, the version of
+ * each optional dependency, and PACKAGE_VERSION.
  *
  * The archives are those of the xcl release, already checked against its signed
  * checksums. The script runs from the package root and changes the working
@@ -42,10 +49,17 @@ function parseArguments(argv) {
       positional.push(argv[index]);
     }
   }
-  if (positional.length !== 2) {
-    throw new Error("usage: assemble.mjs <archives-dir> <tag> [--out <dir>] [--no-build]");
+  if (positional.length !== 3) {
+    throw new Error("usage: assemble.mjs <archives-dir> <engine-tag> <package-version> [--out <dir>] [--no-build]");
   }
-  return { archives: resolve(positional[0]), tag: positional[1], out: resolve(out), build };
+  const [archives, engineTag, packageVersion] = positional;
+  if (!engineTag.startsWith("v")) {
+    throw new Error(`the engine tag must be an xcl tag starting with v, such as v0.13.1, got ${engineTag}`);
+  }
+  if (packageVersion.startsWith("v")) {
+    throw new Error(`the package version is a bare version, such as 0.2.0, got ${packageVersion}`);
+  }
+  return { archives: resolve(archives), engineTag, packageVersion, out: resolve(out), build };
 }
 
 function readJson(path) {
@@ -56,10 +70,10 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-/** Unpacks one engine archive and copies its program into the platform package. */
-function fillPackage(target, archives, version) {
+/** Unpacks one engine archive, named by the engine's version, and copies its program into the platform package. */
+function fillPackage(target, archives, engineVersion) {
   const extension = target.windows ? "zip" : "tar.gz";
-  const archive = join(archives, `xcl-core_${version}_${target.asset}.${extension}`);
+  const archive = join(archives, `xcl-core_${engineVersion}_${target.asset}.${extension}`);
   const program = target.windows ? "xcl-core.exe" : "xcl-core";
   const unpacked = mkdtempSync(join(tmpdir(), "xcl-assemble-"));
   try {
@@ -77,22 +91,23 @@ function fillPackage(target, archives, version) {
   }
 }
 
-function setVersions(version, tag) {
+/** Sets every package to the package's version, and writes both versions into src/version.ts. */
+function setVersions(packageVersion, engineTag) {
   for (const target of TARGETS) {
     const path = join("npm", target.dir, "package.json");
     const manifest = readJson(path);
-    manifest.version = version;
+    manifest.version = packageVersion;
     writeJson(path, manifest);
   }
 
   const root = readJson("package.json");
-  root.version = version;
-  root.optionalDependencies = Object.fromEntries(TARGETS.map((target) => [target.name, version]));
+  root.version = packageVersion;
+  root.optionalDependencies = Object.fromEntries(TARGETS.map((target) => [target.name, packageVersion]));
   writeJson("package.json", root);
 
   const source = readFileSync("src/version.ts", "utf8")
-    .replace(/ENGINE_VERSION = "[^"]*"/, `ENGINE_VERSION = "${tag}"`)
-    .replace(/PACKAGE_VERSION = "[^"]*"/, `PACKAGE_VERSION = "${version}"`);
+    .replace(/ENGINE_VERSION = "[^"]*"/, `ENGINE_VERSION = "${engineTag}"`)
+    .replace(/PACKAGE_VERSION = "[^"]*"/, `PACKAGE_VERSION = "${packageVersion}"`);
   writeFileSync("src/version.ts", source);
 }
 
@@ -100,14 +115,13 @@ function pack(directory, out) {
   execFileSync("npm", ["pack", "--silent", "--pack-destination", out], { cwd: directory, stdio: ["ignore", "ignore", "inherit"] });
 }
 
-const { archives, tag, out, build } = parseArguments(process.argv.slice(2));
-const version = tag.replace(/^v/, "");
+const { archives, engineTag, packageVersion, out, build } = parseArguments(process.argv.slice(2));
 
 mkdirSync(out, { recursive: true });
 for (const target of TARGETS) {
-  fillPackage(target, archives, version);
+  fillPackage(target, archives, engineTag.slice(1));
 }
-setVersions(version, `v${version}`);
+setVersions(packageVersion, engineTag);
 if (build) {
   execFileSync("npm", ["run", "build"], { stdio: "inherit" });
 }
@@ -115,4 +129,4 @@ for (const target of TARGETS) {
   pack(join("npm", target.dir), out);
 }
 pack(".", out);
-console.log(`assembled nine tarballs at ${version} in ${out}`);
+console.log(`assembled nine tarballs at ${packageVersion}, bundling the xcl engine ${engineTag}, in ${out}`);

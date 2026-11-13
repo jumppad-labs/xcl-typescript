@@ -1,24 +1,31 @@
-# Publishes the xcl-lang package and its eight platform packages for one tag.
-# The tag is pushed by tag.yml when a merge moves the engine pin; the workflow
-# can also be run by hand for a tag. The tag is the package's version and the
-# xcl release it bundles, so settings refuses a tag that xcl-ref.txt does not
-# pin at that commit.
+# Publishes the xcl-lang package and its eight platform packages for one
+# xcl-typescript tag. The tag is pushed by tag.yml when a pull request with a
+# major, minor or patch label merges; the workflow can also be run by hand for
+# a tag. The package version comes from the tag, and the engine it bundles from
+# the xcl tag pinned in xcl-ref.txt at that tag: the two are versioned
+# separately.
 #
-# assemble downloads the eight engine archives from the xcl release, verifies
-# the checksums' signature against test/keys/jumppad-labs.asc and every archive
-# against the checksums, and only then builds the nine tarballs from them, once,
-# on Linux. verify and verify-musl install those tarballs on every platform with
-# no Go or C compiler on the path, and run the parity suite and
-# .github/scripts/install-check.mjs against what was installed. publish needs
-# every one of those jobs, so a platform that fails publishes nothing; it uses
-# npm Trusted Publishing from the npm environment, and publishes the platform
-# packages before xcl-lang so that xcl-lang's optional dependencies exist when
-# it appears. A package already at this version is left alone, so a publish
-# that failed part way can be run again.
+# assemble downloads the eight engine archives,
+# xcl-core_<engine version>_<os>_<arch>[_musl], the checksums and their
+# signature from the pinned xcl release, verifies the checksums' signature
+# against test/keys/jumppad-labs.asc and every archive against the checksums,
+# and only then builds the nine tarballs from them, once, on Linux: every
+# package at the tag's version, each platform package holding the pinned
+# engine, and xcl-lang stamped with the pin as the engine it checks for.
+# verify and verify-musl install those tarballs on every platform with no Go or
+# C compiler on the path, and run the parity suite, against xcl's sources at the
+# pin, and .github/scripts/install-check.mjs against what was installed. publish
+# needs every one of those jobs, so a platform that fails publishes nothing; it
+# uses npm Trusted Publishing with provenance from the npm environment, and
+# publishes the platform packages before xcl-lang so that xcl-lang's optional
+# dependencies exist when it appears. A package already at this version is left
+# alone, so a publish that failed part way can be run again.
 #
 # install-check and install-check-musl then install the published package from
-# npm on every platform with no toolchain, and check its engine reports the tag.
-# Last, a GitHub release is created for the tag.
+# npm on every platform with no toolchain, where install-check.mjs applies a
+# configuration, reads the entity back and checks engineVersion() reports the
+# pin. Last, a GitHub release is created for the tag, its notes listing the
+# pull requests merged since the previous tag and naming the bundled engine.
 #
 # The install check is run from a project holding node_modules, so that it
 # imports the package as a user's program does.
@@ -31,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: The tag to release, e.g. v0.13.1
+        description: The xcl-typescript tag to release, e.g. v0.1.0
         required: true
         type: string
 
@@ -48,6 +55,8 @@ jobs:
     outputs:
       tag: ${{ steps.settings.outputs.tag }}
       version: ${{ steps.settings.outputs.version }}
+      engine: ${{ steps.settings.outputs.engine }}
+      engine-version: ${{ steps.settings.outputs.engine-version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,15 +70,19 @@ jobs:
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "the tag must look like v1.2.3, got $TAG"; exit 1
           fi
-          pin="$(tr -d '[:space:]' < xcl-ref.txt)"
-          if [ "$pin" != "$TAG" ]; then
-            echo "xcl-ref.txt pins $pin at $TAG; the package is released at the version of the engine it bundles"; exit 1
+          # the engine is the xcl tag pinned at the package's tag
+          engine="$(tr -d '[:space:]' < xcl-ref.txt)"
+          if ! [[ "$engine" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "xcl-ref.txt must pin an xcl tag like v1.2.3, got $engine"; exit 1
           fi
+          echo "package $TAG bundles the xcl engine $engine"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "engine=$engine" >> "$GITHUB_OUTPUT"
+          echo "engine-version=${engine#v}" >> "$GITHUB_OUTPUT"
 
-  # the nine tarballs, from the signed engine archives of the xcl release.
-  # Nothing unpacks an archive until the step that checks it has passed.
+  # the nine tarballs, from the signed engine archives of the pinned xcl
+  # release. Nothing unpacks an archive until the step that checks it has passed.
   assemble:
     name: Assemble the tarballs
     needs: settings
@@ -77,6 +90,8 @@ jobs:
     env:
       TAG: ${{ needs.settings.outputs.tag }}
       VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+      ENGINE_VERSION: ${{ needs.settings.outputs.engine-version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,14 +111,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          checksums="xcl-core_${VERSION}_checksums.txt"
+          checksums="xcl-core_${ENGINE_VERSION}_checksums.txt"
           archives=()
           patterns=(--pattern "$checksums" --pattern "$checksums.sig")
           for asset in linux_amd64 linux_amd64_musl linux_arm64 linux_arm64_musl \
                        darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
             case "$asset" in
-              windows_*) archive="xcl-core_${VERSION}_${asset}.zip" ;;
-              *)         archive="xcl-core_${VERSION}_${asset}.tar.gz" ;;
+              windows_*) archive="xcl-core_${ENGINE_VERSION}_${asset}.zip" ;;
+              *)         archive="xcl-core_${ENGINE_VERSION}_${asset}.tar.gz" ;;
             esac
             archives+=("$archive")
             patterns+=(--pattern "$archive")
@@ -112,7 +127,7 @@ jobs:
           keys="$PWD/test/keys/jumppad-labs.asc"
           mkdir -p archives
           cd archives
-          gh release download "$TAG" --repo jumppad-labs/xcl "${patterns[@]}"
+          gh release download "$ENGINE" --repo jumppad-labs/xcl "${patterns[@]}"
 
           # a keyring of its own, so the only key that can pass is the release key
           GNUPGHOME="$(mktemp -d)"
@@ -132,7 +147,7 @@ jobs:
 
       - name: Assemble the tarballs
         shell: bash
-        run: node scripts/assemble.mjs archives "$TAG" --out tarballs
+        run: node scripts/assemble.mjs archives "$ENGINE" "$VERSION" --out tarballs
 
       - name: Check there are nine tarballs
         shell: bash
@@ -167,6 +182,7 @@ jobs:
     env:
       TAG: ${{ needs.settings.outputs.tag }}
       VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -175,7 +191,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jumppad-labs/xcl
-          ref: ${{ env.TAG }}
+          ref: ${{ env.ENGINE }}
           path: xcl-src
 
       - uses: actions/setup-go@v5
@@ -242,7 +258,7 @@ jobs:
           # the example against the installed types, and the install check
           # with no XCL_CORE_PATH, so the engine comes from the platform package
           npx tsc -p .
-          node install-check.mjs "$TAG"
+          node install-check.mjs "$ENGINE"
 
           # the parity suite against the installed dist and engine
           mkdir -p build/test
@@ -272,6 +288,7 @@ jobs:
     env:
       TAG: ${{ needs.settings.outputs.tag }}
       VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -280,7 +297,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jumppad-labs/xcl
-          ref: ${{ env.TAG }}
+          ref: ${{ env.ENGINE }}
           path: xcl-src
 
       - uses: actions/download-artifact@v4
@@ -296,7 +313,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/xcl-install"
           docker run --rm -v "$PWD:/work" -v "$RUNNER_TEMP/xcl-install:/project" -w /work \
-            -e GO_VERSION -e TAG -e VERSION -e PACKAGE -e GITHUB_TOKEN \
+            -e GO_VERSION -e TAG -e VERSION -e ENGINE -e PACKAGE -e GITHUB_TOKEN \
             -e XCL_SRC=/work/xcl-src -e XCL_TEST_STRICT=1 -e TMPDIR=/tmp/xcl node:${{ matrix.node }}-alpine sh -ec '
             mkdir -p "$TMPDIR"
             apk add --no-cache git make curl tar
@@ -321,7 +338,7 @@ jobs:
             test -x "node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core"
 
             npx tsc -p .
-            node install-check.mjs "$TAG"
+            node install-check.mjs "$ENGINE"
 
             mkdir -p build/test
             cp -r /work/build/test/test build/test/test
@@ -385,9 +402,10 @@ jobs:
           npm publish "./tarballs/xcl-lang-$VERSION.tgz" --provenance --access public
 
   # a real install from npm on every platform with no Go or C compiler on the
-  # path. A platform package npm cannot find yet is silently left out of an
-  # install, since it is optional, so the install is retried until the engine
-  # is there.
+  # path, checking it applies a configuration, reads it back and reports the
+  # pinned engine. A platform package npm cannot find yet is silently left out
+  # of an install, since it is optional, so the install is retried until the
+  # engine is there.
   install-check:
     name: Install check ${{ matrix.os }}
     needs: [settings, publish]
@@ -399,6 +417,7 @@ jobs:
     env:
       TAG: ${{ needs.settings.outputs.tag }}
       VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -459,7 +478,7 @@ jobs:
           if [ "$installed" != true ]; then
             echo "xcl-lang@$VERSION did not install with its engine"; exit 1
           fi
-          node install-check.mjs "$TAG"
+          node install-check.mjs "$ENGINE"
 
   # the same on musl, in a plain Alpine image that has no compiler at all
   install-check-musl:
@@ -475,6 +494,7 @@ jobs:
     env:
       TAG: ${{ needs.settings.outputs.tag }}
       VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -489,7 +509,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PACKAGE: ${{ matrix.package }}
         run: |
-          docker run --rm -v "$PWD:/work" -w /work -e TAG -e VERSION -e PACKAGE -e GITHUB_TOKEN \
+          docker run --rm -v "$PWD:/work" -w /work -e TAG -e VERSION -e ENGINE -e PACKAGE -e GITHUB_TOKEN \
             -e TMPDIR=/tmp/xcl node:22-alpine sh -ec '
             mkdir -p "$TMPDIR" /project
             for tool in go gcc cc clang; do
@@ -511,7 +531,7 @@ jobs:
             if [ "$installed" != true ]; then
               echo "xcl-lang@$VERSION did not install with its engine"; exit 1
             fi
-            node install-check.mjs "$TAG"'
+            node install-check.mjs "$ENGINE"'
 
   # the GitHub release for the tag: the pull requests merged since the
   # previous tag, and the engine the package bundles
@@ -523,6 +543,7 @@ jobs:
       contents: write
     env:
       TAG: ${{ needs.settings.outputs.tag }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Create the release
@@ -542,5 +563,5 @@ jobs:
             start=(--notes-start-tag "$previous")
           fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --verify-tag \
-            --notes "Bundles the xcl engine [$TAG](https://github.com/jumppad-labs/xcl/releases/tag/$TAG)." \
+            --notes "Bundles the xcl engine [$ENGINE](https://github.com/jumppad-labs/xcl/releases/tag/$ENGINE)." \
             --generate-notes "${start[@]}"

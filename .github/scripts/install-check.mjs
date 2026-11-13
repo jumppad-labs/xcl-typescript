@@ -2,7 +2,7 @@
 /**
  * The release's install check: an installed xcl-lang does real work.
  *
- * Usage: node install-check.mjs <tag>
+ * Usage: node install-check.mjs <engine-tag>
  *
  * Run by the verify and install-check jobs of release.yml on every platform,
  * after installing the package with no Go or C compiler on the path. It is
@@ -10,43 +10,18 @@
  * examples/getting-started, and run from there, so `xcl-lang` resolves as it
  * does for a user's program. It needs nothing but Node and the package.
  *
- * It checks the installed platform package's engine reports the tag, then runs
- * the getting-started flow: installs the signed test plugin from its GitHub
- * release, applies main.xcl, reads the entity back and closes the
- * configuration. The package's public API has no accessor for the engine's
- * version, so the version comes from `xcl-core --version` of the program the
- * package itself would run. `XCL_CORE_PATH` is refused, since it would replace
- * the installed engine this check is here to test.
+ * It runs the getting-started flow: installs the signed test plugin from its
+ * GitHub release, applies main.xcl, reads the entity back and closes the
+ * configuration. Then it checks `engineVersion()` reports the engine tag, the
+ * xcl release pinned in xcl-ref.txt at the package's tag, which is versioned
+ * separately from the package. `XCL_CORE_PATH` is refused, since it would
+ * replace the installed engine this check is here to test.
  */
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 
-import { Config, GitHubRegistry } from "xcl-lang";
-
-/** The engine package for this platform, chosen as the SDK chooses it. */
-function platformPackage() {
-  if (process.platform !== "linux") {
-    return `@jumppad-labs/xcl-lang-${process.platform}-${process.arch}`;
-  }
-  // a report otherwise looks up every network interface, which can take seconds
-  process.report.excludeNetwork = true;
-  const libc = process.report.getReport().header.glibcVersionRuntime ? "gnu" : "musl";
-  return `@jumppad-labs/xcl-lang-linux-${process.arch}-${libc}`;
-}
-
-/** The version the installed platform package's `xcl-core` reports. */
-function installedEngineVersion() {
-  const packageName = platformPackage();
-  const manifest = createRequire(import.meta.url).resolve(`${packageName}/package.json`);
-  const program = join(dirname(manifest), "bin", process.platform === "win32" ? "xcl-core.exe" : "xcl-core");
-  const version = execFileSync(program, ["--version"], { encoding: "utf8" }).trim();
-  console.log(`${packageName}: ${program} reports ${version}`);
-  return version;
-}
+import { Config, engineVersion, GitHubRegistry } from "xcl-lang";
 
 /** The steps of examples/getting-started/main.ts, without its TypeScript. */
 async function runGettingStarted() {
@@ -71,14 +46,15 @@ async function runGettingStarted() {
 
 const expected = process.argv[2];
 if (!expected) {
-  throw new Error("usage: install-check.mjs <tag>");
+  throw new Error("usage: install-check.mjs <engine-tag>");
 }
 if (process.env.XCL_CORE_PATH) {
   throw new Error(`XCL_CORE_PATH is set to ${process.env.XCL_CORE_PATH}; the install check tests the installed engine`);
 }
 
-const version = installedEngineVersion();
-assert.equal(version, expected, `the installed engine reports ${version}, expected ${expected}`);
-
 await runGettingStarted();
+
+const version = await engineVersion();
+console.log(`applied and read back test.item.second; engine ${version}`);
+assert.equal(version, expected, `the engine reports ${version}, expected ${expected}`);
 console.log(`install check passed: engine ${version}`);

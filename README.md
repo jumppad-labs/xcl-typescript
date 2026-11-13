@@ -319,7 +319,15 @@ One engine runs per process, and one per worker thread, started on first use and
 
 Constructing a `Config` starts nothing. The configuration is created in the engine on its first call, which starts the engine if it is not running, checks its version and sends your registered types and functions, so a registration the engine refuses rejects that first call. To find out sooner, call `await config.setup()`: it does the same work and resolves to the configuration. Most programs never need it. It is there for a program that should fail at start-up, such as a service checking its configuration at boot, or that wants the engine's start-up cost paid before latency-sensitive work. Python's asyncio API calls the same thing `open()`.
 
-The npm version equals the xcl release it bundles.
+The package has its own version, and bundles the xcl engine release pinned in `xcl-ref.txt` when it was built; `await engineVersion()` reports it, starting the engine if it is not running. The package refuses to run against any other engine: `engineVersion()` rejects with `EngineVersionError` for an engine of another version, and with `EngineNotFoundError` when there is none.
+
+## Releases and the engine pin
+
+Releases are automatic, and follow [xcl's release process](https://github.com/jumppad-labs/xcl#releases). Every pull request carries exactly one of the labels `patch`, `minor`, `major` or `no-release`, and merging it tags and publishes the next version of this package to npm, `xcl-lang` and its eight platform packages at the same version, with npm trusted publishing and provenance, and a GitHub release listing the merged pull requests and naming the bundled engine. The package's version line is its own: a fix here releases TypeScript alone, with no xcl release.
+
+`xcl-ref.txt` pins the xcl release the package is tested against and bundles: each platform package carries that release's signed `xcl-core`. When xcl releases, a pull request titled "Use xcl engine <tag>" moves the pin to the new tag, labelled with the same size as the engine release. It merges by itself once its checks pass, which releases the package with the new engine. If its checks fail it stays open; fix the package on its branch and it merges once they pass.
+
+A release stamps the pin into `src/version.ts` as `ENGINE_VERSION`, and the package's version as `PACKAGE_VERSION`. In a checkout `ENGINE_VERSION` holds the development value `v0.0.0-dev`, which `make engine` also stamps on the engine it builds, so a development engine always passes the version check.
 
 ## License
 

@@ -1,0 +1,14 @@
+# Checks that every pull request carries exactly one release label: major,
+# minor, patch or no-release. The rule is xcl's shared release-label check,
+# so every repository taking part in automated releases applies the same one.
+
+name: Release label
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+jobs:
+  release-label:
+    uses: jumppad-labs/xcl/.github/workflows/release-label-check.yml@main

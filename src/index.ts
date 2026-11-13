@@ -2,6 +2,7 @@ export { Config } from "./config.js";
 export type { ConfigOptions, DiffOptions, EncodeOptions, OperationOptions, Paths, StateStore } from "./config.js";
 export { Diff, UNKNOWN } from "./diff.js";
 export type { Change, Dependency, ResourceDiff, Summary } from "./diff.js";
+export { engineVersion } from "./engine-version.js";
 export * from "./errors.js";
 export { Event, EventDataLevel } from "./events.js";
 export type { LevelLogger, ToLoggerOptions } from "./events.js";

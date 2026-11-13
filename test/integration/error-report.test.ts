@@ -66,7 +66,9 @@ async function runScript(t: TestContext, name: string): Promise<{ stderr: string
   const url = pathToFileURL(join(SCRIPTS, `${name}.js`)).href;
   const args = [FIXTURE, pluginPath(RECORDING_PLUGIN), join(directory, "state")].join("\n");
   const script = await runScenario(`await import(${JSON.stringify(url)});`, directory, { XCL_TEST_ARGS: args });
-  return { stderr: script.stderr, exitCode: script.exitCode };
+  // Node prints an uncaught error from native code, which on Windows writes
+  // CRLF line endings; console.error writes through a stream and keeps LF
+  return { stderr: script.stderr.replace(/\r\n/g, "\n"), exitCode: script.exitCode };
 }
 
 test("an uncaught error writes the report to standard error and exits with a failure status", { skip: needsBuild }, async (t) => {
