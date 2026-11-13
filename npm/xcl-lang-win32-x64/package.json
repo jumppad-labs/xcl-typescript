@@ -1,0 +1,20 @@
+{
+  "name": "@jumppad-labs/xcl-lang-win32-x64",
+  "version": "0.0.0-dev",
+  "description": "The xcl engine for win32 x64, used by xcl-lang.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jumppad-labs/xcl-typescript.git"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "preferUnplugged": true,
+  "files": [
+    "bin"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "xcl-lang",
+  "version": "0.0.0-dev",
+  "description": "xcl for TypeScript and Node: runs the bundled xcl engine, with the same Go plugins.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jumppad-labs/xcl-typescript.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./xcl.css": "./dist/xcl.css"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "PARITY.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/write-css.mjs",
+    "build:test": "tsc -p tsconfig.test.json && tsc -p tsconfig.decorators-standard.json && tsc -p tsconfig.decorators-legacy.json",
+    "test:unit": "npm run build && npm run build:test && node --test --test-timeout=300000 \"build/test/test/unit/**/*.test.js\" \"build/decorators-*/test/decorators/*.test.js\" \"scripts/*.test.mjs\"",
+    "test": "npm run build && npm run build:test && node --test --test-timeout=300000 \"build/test/test/**/*.test.js\" \"build/decorators-*/test/decorators/*.test.js\" \"scripts/*.test.mjs\""
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.17.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.75.0",
+    "@bufbuild/protoc-gen-es": "2.17.0",
+    "@types/node": "22.20.5",
+    "pino": "9.14.0",
+    "typescript": "5.9.3",
+    "winston": "3.19.0"
+  }
+}

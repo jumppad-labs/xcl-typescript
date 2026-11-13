@@ -1,0 +1,10 @@
+test "item" "first" {
+  log   = "operations.log"
+  value = "one"
+}
+
+test "item" "second" {
+  log   = "operations.log"
+  value = "two"
+  input = test.item.first.output
+}

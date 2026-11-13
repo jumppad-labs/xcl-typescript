@@ -1,0 +1,25 @@
+# Tags each merge to main with the next version its pull request's release
+# label asks for, using xcl's shared auto-tag. The tag starts release.yml,
+# which publishes that version with the engine pinned in xcl-ref.txt. Merges
+# are tagged one at a time, so two never get the same version.
+
+name: Tag
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    # a called workflow can not be given more than its caller has, and the
+    # repository's default token reads contents only, while auto-tag also
+    # reads the merged pull request's labels
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: jumppad-labs/xcl/.github/workflows/auto-tag.yml@main
+    secrets: inherit

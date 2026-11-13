@@ -1,0 +1,22 @@
+schema: 2
+written_by: dev
+description: 'The xcl TypeScript package: runs the bundled xcl engine from Node.js and offers a Promise-based API, published to npm as xcl-lang.'
+role: language SDK
+tags:
+    - typescript
+    - node
+    - npm
+    - sdk
+    - xcl
+source:
+    provider: file
+    config:
+        location: ..
+knowledge:
+    provider: file
+    config:
+        location: knowledge
+changelog:
+    provider: file
+    config:
+        directory: changelog

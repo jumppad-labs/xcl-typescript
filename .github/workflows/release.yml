@@ -1,0 +1,567 @@
+# Publishes the xcl-lang package and its eight platform packages for one
+# xcl-typescript tag. The tag is pushed by tag.yml when a pull request with a
+# major, minor or patch label merges; the workflow can also be run by hand for
+# a tag. The package version comes from the tag, and the engine it bundles from
+# the xcl tag pinned in xcl-ref.txt at that tag: the two are versioned
+# separately.
+#
+# assemble downloads the eight engine archives,
+# xcl-core_<engine version>_<os>_<arch>[_musl], the checksums and their
+# signature from the pinned xcl release, verifies the checksums' signature
+# against test/keys/jumppad-labs.asc and every archive against the checksums,
+# and only then builds the nine tarballs from them, once, on Linux: every
+# package at the tag's version, each platform package holding the pinned
+# engine, and xcl-lang stamped with the pin as the engine it checks for.
+# verify and verify-musl install those tarballs on every platform with no Go or
+# C compiler on the path, and run the parity suite, against xcl's sources at the
+# pin, and .github/scripts/install-check.mjs against what was installed. publish
+# needs every one of those jobs, so a platform that fails publishes nothing; it
+# uses npm Trusted Publishing with provenance from the npm environment, and
+# publishes the platform packages before xcl-lang so that xcl-lang's optional
+# dependencies exist when it appears. A package already at this version is left
+# alone, so a publish that failed part way can be run again.
+#
+# install-check and install-check-musl then install the published package from
+# npm on every platform with no toolchain, where install-check.mjs applies a
+# configuration, reads the entity back and checks engineVersion() reports the
+# pin. Last, a GitHub release is created for the tag, its notes listing the
+# pull requests merged since the previous tag and naming the bundled engine.
+#
+# The install check is run from a project holding node_modules, so that it
+# imports the package as a user's program does.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The xcl-typescript tag to release, e.g. v0.1.0
+        required: true
+        type: string
+
+env:
+  GO_VERSION: '1.27.0'
+
+permissions:
+  contents: read
+
+jobs:
+  settings:
+    name: Settings
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.settings.outputs.tag }}
+      version: ${{ steps.settings.outputs.version }}
+      engine: ${{ steps.settings.outputs.engine }}
+      engine-version: ${{ steps.settings.outputs.engine-version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - id: settings
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "the tag must look like v1.2.3, got $TAG"; exit 1
+          fi
+          # the engine is the xcl tag pinned at the package's tag
+          engine="$(tr -d '[:space:]' < xcl-ref.txt)"
+          if ! [[ "$engine" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "xcl-ref.txt must pin an xcl tag like v1.2.3, got $engine"; exit 1
+          fi
+          echo "package $TAG bundles the xcl engine $engine"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "engine=$engine" >> "$GITHUB_OUTPUT"
+          echo "engine-version=${engine#v}" >> "$GITHUB_OUTPUT"
+
+  # the nine tarballs, from the signed engine archives of the pinned xcl
+  # release. Nothing unpacks an archive until the step that checks it has passed.
+  assemble:
+    name: Assemble the tarballs
+    needs: settings
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+      VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+      ENGINE_VERSION: ${{ needs.settings.outputs.engine-version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        shell: bash
+        run: npm ci --ignore-scripts
+
+      - name: Download the engine archives and check every one against the signed checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          checksums="xcl-core_${ENGINE_VERSION}_checksums.txt"
+          archives=()
+          patterns=(--pattern "$checksums" --pattern "$checksums.sig")
+          for asset in linux_amd64 linux_amd64_musl linux_arm64 linux_arm64_musl \
+                       darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
+            case "$asset" in
+              windows_*) archive="xcl-core_${ENGINE_VERSION}_${asset}.zip" ;;
+              *)         archive="xcl-core_${ENGINE_VERSION}_${asset}.tar.gz" ;;
+            esac
+            archives+=("$archive")
+            patterns+=(--pattern "$archive")
+          done
+
+          keys="$PWD/test/keys/jumppad-labs.asc"
+          mkdir -p archives
+          cd archives
+          gh release download "$ENGINE" --repo jumppad-labs/xcl "${patterns[@]}"
+
+          # a keyring of its own, so the only key that can pass is the release key
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          gpg --batch --import "$keys"
+          gpg --batch --verify "$checksums.sig" "$checksums"
+
+          # by the expected name, so an archive missing from the release or
+          # from the checksums fails here rather than being passed over
+          for archive in "${archives[@]}"; do
+            line="$(awk -v name="$archive" '$2 == name' "$checksums")"
+            if [ -z "$line" ]; then
+              echo "$archive has no line in $checksums"; exit 1
+            fi
+            sha256sum -c - <<< "$line"
+          done
+
+      - name: Assemble the tarballs
+        shell: bash
+        run: node scripts/assemble.mjs archives "$ENGINE" "$VERSION" --out tarballs
+
+      - name: Check there are nine tarballs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la tarballs
+          count="$(find tarballs -maxdepth 1 -name '*.tgz' | wc -l)"
+          if [ "$count" -ne 9 ]; then
+            echo "expected nine tarballs, found $count"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs/*.tgz
+          if-no-files-found: error
+
+  # the tarballs in a fresh project on every platform, with no Go or C compiler
+  # on the path. Go builds the fixture plugins and the Go parity program first,
+  # since the suite compares against them, and is then hidden for the install.
+  # The compiled parity suite runs in the fresh project with its source tree
+  # linked to the installed dist, so it exercises what was installed.
+  verify:
+    name: Verify ${{ matrix.os }} / node${{ matrix.node }}
+    needs: [settings, assemble]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+        node: ['22', '24', '26']
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+      VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ env.ENGINE }}
+          path: xcl-src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Use a short temporary directory
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p /tmp/xcl
+          echo "TMPDIR=/tmp/xcl" >> "$GITHUB_ENV"
+
+      - name: Build the fixture plugins and compile the tests
+        shell: bash
+        run: |
+          npm ci --ignore-scripts
+          make plugins XCL_SRC="$PWD/xcl-src"
+          npx tsc -p tsconfig.test.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs
+
+      - name: Install the tarballs without a toolchain, and check them
+        shell: bash
+        env:
+          XCL_SRC: ${{ github.workspace }}/xcl-src
+          XCL_TEST_STRICT: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # hide every Go and C compiler the runner has
+          mkdir -p "$HOME/clean-bin"
+          for tool in go gcc cc clang zig; do
+            printf '#!/bin/sh\necho "%s is not available" >&2\nexit 127\n' "$tool" > "$HOME/clean-bin/$tool"
+            chmod +x "$HOME/clean-bin/$tool"
+          done
+          export PATH="$HOME/clean-bin:$PATH"
+          for tool in go gcc cc clang zig; do
+            if "$tool" --version >/dev/null 2>&1; then echo "$tool is still available"; exit 1; fi
+          done
+
+          workspace="$PWD"
+          project="$(cd "$RUNNER_TEMP" && pwd)/xcl-install"
+          package="xcl-lang-$(node -p "process.platform + '-' + process.arch")"
+          case "$package" in xcl-lang-linux-*) package="$package-gnu" ;; esac
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then exe=".exe"; fi
+
+          mkdir -p "$project"
+          cp -r "$workspace/examples/getting-started/." "$project/"
+          cp "$workspace/.github/scripts/install-check.mjs" "$project/"
+          cp "$workspace/tarballs/"*.tgz "$project/"
+          cd "$project"
+          npm install --no-audit --no-fund "./xcl-lang-$VERSION.tgz" "./jumppad-labs-$package-$VERSION.tgz" typescript@5.9.3 @types/node@22.20.5
+          test -x "node_modules/@jumppad-labs/$package/bin/xcl-core$exe"
+
+          # the example against the installed types, and the install check
+          # with no XCL_CORE_PATH, so the engine comes from the platform package
+          npx tsc -p .
+          node install-check.mjs "$ENGINE"
+
+          # the parity suite against the installed dist and engine
+          mkdir -p build/test
+          cp -r "$workspace/build/test/test" build/test/test
+          cp -r "$workspace/build/plugins" build/plugins
+          node -e "require('fs').symlinkSync(require('path').resolve('node_modules/xcl-lang/dist'), 'build/test/src', 'junction')"
+          XCL_CORE_PATH="$(node -p "require('path').resolve('node_modules/@jumppad-labs/$package/bin/xcl-core$exe')")"
+          export XCL_CORE_PATH
+          node --test --test-timeout=300000 "build/test/test/parity/*.test.js"
+
+  # the same on musl, in Alpine, where Go is removed before the install and
+  # there is no C compiler at all. Alpine is started by hand, because GitHub
+  # cannot run its JavaScript actions in an Alpine job container on the arm64
+  # runners.
+  verify-musl:
+    name: Verify alpine / ${{ matrix.arch }} / node ${{ matrix.node }}
+    needs: [settings, assemble]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24', '26']
+        arch: [x86_64, aarch64]
+        include:
+          - { arch: x86_64,  runner: ubuntu-latest,    package: xcl-lang-linux-x64-musl }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, package: xcl-lang-linux-arm64-musl }
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+      VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl
+          ref: ${{ env.ENGINE }}
+          path: xcl-src
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs
+
+      - name: Install the tarballs without a toolchain, and check them in Alpine
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/xcl-install"
+          docker run --rm -v "$PWD:/work" -v "$RUNNER_TEMP/xcl-install:/project" -w /work \
+            -e GO_VERSION -e TAG -e VERSION -e ENGINE -e PACKAGE -e GITHUB_TOKEN \
+            -e XCL_SRC=/work/xcl-src -e XCL_TEST_STRICT=1 -e TMPDIR=/tmp/xcl node:${{ matrix.node }}-alpine sh -ec '
+            mkdir -p "$TMPDIR"
+            apk add --no-cache git make curl tar
+            case "$(uname -m)" in x86_64) goarch=amd64 ;; aarch64) goarch=arm64 ;; esac
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" | tar -C /usr/local -xz
+            export PATH="/usr/local/go/bin:$PATH"
+            git config --global --add safe.directory "*"
+            npm ci --ignore-scripts
+            make plugins XCL_SRC=/work/xcl-src
+            npx tsc -p tsconfig.test.json
+
+            rm -rf /usr/local/go
+            for tool in go gcc cc clang; do
+              if command -v "$tool"; then echo "$tool is still available"; exit 1; fi
+            done
+
+            cp -r /work/examples/getting-started/. /project/
+            cp /work/.github/scripts/install-check.mjs /project/
+            cp /work/tarballs/*.tgz /project/
+            cd /project
+            npm install --no-audit --no-fund "./xcl-lang-$VERSION.tgz" "./jumppad-labs-$PACKAGE-$VERSION.tgz" typescript@5.9.3 @types/node@22.20.5
+            test -x "node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core"
+
+            npx tsc -p .
+            node install-check.mjs "$ENGINE"
+
+            mkdir -p build/test
+            cp -r /work/build/test/test build/test/test
+            cp -r /work/build/plugins build/plugins
+            ln -s /project/node_modules/xcl-lang/dist build/test/src
+            XCL_CORE_PATH="/project/node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core" \
+              node --test --test-timeout=300000 "build/test/test/parity/*.test.js"'
+
+  # needs every verify job, without always(), so one failed or cancelled
+  # platform publishes nothing
+  publish:
+    name: Publish to npm
+    needs: [settings, verify, verify-musl]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+    env:
+      VERSION: ${{ needs.settings.outputs.version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted Publishing needs npm 11.5.1 or later
+      - name: Use a recent npm
+        shell: bash
+        run: |
+          npm install -g npm@11.5.1
+          npm --version
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarballs
+          path: tarballs
+
+      - name: Publish the eight platform packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in xcl-lang-linux-x64-gnu xcl-lang-linux-x64-musl \
+                         xcl-lang-linux-arm64-gnu xcl-lang-linux-arm64-musl \
+                         xcl-lang-darwin-x64 xcl-lang-darwin-arm64 \
+                         xcl-lang-win32-x64 xcl-lang-win32-arm64; do
+            if [ -n "$(npm view "@jumppad-labs/$package@$VERSION" version 2>/dev/null || true)" ]; then
+              echo "@jumppad-labs/$package@$VERSION is already published"
+              continue
+            fi
+            npm publish "./tarballs/jumppad-labs-$package-$VERSION.tgz" --provenance --access public
+          done
+
+      - name: Publish xcl-lang
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$(npm view "xcl-lang@$VERSION" version 2>/dev/null || true)" ]; then
+            echo "xcl-lang@$VERSION is already published"
+            exit 0
+          fi
+          npm publish "./tarballs/xcl-lang-$VERSION.tgz" --provenance --access public
+
+  # a real install from npm on every platform with no Go or C compiler on the
+  # path, checking it applies a configuration, reads it back and reports the
+  # pinned engine. A platform package npm cannot find yet is silently left out
+  # of an install, since it is optional, so the install is retried until the
+  # engine is there.
+  install-check:
+    name: Install check ${{ matrix.os }}
+    needs: [settings, publish]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+      VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          sparse-checkout: |
+            .github/scripts
+            examples/getting-started
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Use a short temporary directory
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p /tmp/xcl
+          echo "TMPDIR=/tmp/xcl" >> "$GITHUB_ENV"
+
+      - name: Install from npm without a toolchain, and check it
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # hide every Go and C compiler the runner has
+          mkdir -p "$HOME/clean-bin"
+          for tool in go gcc cc clang zig; do
+            printf '#!/bin/sh\necho "%s is not available" >&2\nexit 127\n' "$tool" > "$HOME/clean-bin/$tool"
+            chmod +x "$HOME/clean-bin/$tool"
+          done
+          export PATH="$HOME/clean-bin:$PATH"
+          for tool in go gcc cc clang zig; do
+            if "$tool" --version >/dev/null 2>&1; then echo "$tool is still available"; exit 1; fi
+          done
+
+          workspace="$PWD"
+          project="$(cd "$RUNNER_TEMP" && pwd)/xcl-install"
+          package="xcl-lang-$(node -p "process.platform + '-' + process.arch")"
+          case "$package" in xcl-lang-linux-*) package="$package-gnu" ;; esac
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then exe=".exe"; fi
+
+          mkdir -p "$project"
+          cp -r "$workspace/examples/getting-started/." "$project/"
+          cp "$workspace/.github/scripts/install-check.mjs" "$project/"
+          cd "$project"
+          installed=false
+          for attempt in $(seq 1 20); do
+            rm -rf node_modules package-lock.json
+            if npm install --no-audit --no-fund --prefer-online "xcl-lang@$VERSION" && [ -x "node_modules/@jumppad-labs/$package/bin/xcl-core$exe" ]; then
+              installed=true
+              break
+            fi
+            echo "xcl-lang@$VERSION and @jumppad-labs/$package are not both on npm yet, waiting (attempt $attempt)"
+            sleep 30
+          done
+          if [ "$installed" != true ]; then
+            echo "xcl-lang@$VERSION did not install with its engine"; exit 1
+          fi
+          node install-check.mjs "$ENGINE"
+
+  # the same on musl, in a plain Alpine image that has no compiler at all
+  install-check-musl:
+    name: Install check alpine / ${{ matrix.arch }}
+    needs: [settings, publish]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64,  runner: ubuntu-latest,    package: xcl-lang-linux-x64-musl }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, package: xcl-lang-linux-arm64-musl }
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+      VERSION: ${{ needs.settings.outputs.version }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          sparse-checkout: |
+            .github/scripts
+            examples/getting-started
+
+      - name: Install from npm without a toolchain, and check it in Alpine
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e TAG -e VERSION -e ENGINE -e PACKAGE -e GITHUB_TOKEN \
+            -e TMPDIR=/tmp/xcl node:22-alpine sh -ec '
+            mkdir -p "$TMPDIR" /project
+            for tool in go gcc cc clang; do
+              if command -v "$tool"; then echo "$tool is available"; exit 1; fi
+            done
+            cp -r /work/examples/getting-started/. /project/
+            cp /work/.github/scripts/install-check.mjs /project/
+            cd /project
+            installed=false
+            for attempt in $(seq 1 20); do
+              rm -rf node_modules package-lock.json
+              if npm install --no-audit --no-fund --prefer-online "xcl-lang@$VERSION" && [ -x "node_modules/@jumppad-labs/$PACKAGE/bin/xcl-core" ]; then
+                installed=true
+                break
+              fi
+              echo "xcl-lang@$VERSION and @jumppad-labs/$PACKAGE are not both on npm yet, waiting (attempt $attempt)"
+              sleep 30
+            done
+            if [ "$installed" != true ]; then
+              echo "xcl-lang@$VERSION did not install with its engine"; exit 1
+            fi
+            node install-check.mjs "$ENGINE"'
+
+  # the GitHub release for the tag: the pull requests merged since the
+  # previous tag, and the engine the package bundles
+  github-release:
+    name: GitHub release
+    needs: [settings, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+      ENGINE: ${{ needs.settings.outputs.engine }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Create the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "the release for $TAG already exists"
+            exit 0
+          fi
+          previous="$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" \
+            --jq '.[].ref | sub("^refs/tags/"; "")' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | awk -v tag="$TAG" '$0 == tag { print prev; exit } { prev = $0 }')"
+          start=()
+          if [ -n "$previous" ]; then
+            echo "notes from $previous to $TAG"
+            start=(--notes-start-tag "$previous")
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --verify-tag \
+            --notes "Bundles the xcl engine [$ENGINE](https://github.com/jumppad-labs/xcl/releases/tag/$ENGINE)." \
+            --generate-notes "${start[@]}"
