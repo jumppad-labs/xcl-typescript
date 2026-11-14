@@ -260,6 +260,13 @@ jobs:
           npx tsc -p .
           node install-check.mjs "$ENGINE"
 
+          # the CommonJS example, which require()s the same installed package;
+          # .cjs because the project's package.json is an ES module one
+          cp "$workspace/examples/getting-started-commonjs/main.js" main.cjs
+          rm -rf .xcl operations.log
+          node main.cjs | tee commonjs.out
+          grep -Fq "test.item.second two first-one" commonjs.out
+
           # the parity suite against the installed dist and engine
           mkdir -p build/test
           cp -r "$workspace/build/test/test" build/test/test
@@ -339,6 +346,11 @@ jobs:
 
             npx tsc -p .
             node install-check.mjs "$ENGINE"
+
+            cp /work/examples/getting-started-commonjs/main.js main.cjs
+            rm -rf .xcl operations.log
+            node main.cjs | tee commonjs.out
+            grep -Fq "test.item.second two first-one" commonjs.out
 
             mkdir -p build/test
             cp -r /work/build/test/test build/test/test
@@ -425,6 +437,7 @@ jobs:
           sparse-checkout: |
             .github/scripts
             examples/getting-started
+            examples/getting-started-commonjs
 
       - uses: actions/setup-node@v4
         with:
@@ -480,6 +493,13 @@ jobs:
           fi
           node install-check.mjs "$ENGINE"
 
+          # the CommonJS example, which require()s the same installed package;
+          # .cjs because the project's package.json is an ES module one
+          cp "$workspace/examples/getting-started-commonjs/main.js" main.cjs
+          rm -rf .xcl operations.log
+          node main.cjs | tee commonjs.out
+          grep -Fq "test.item.second two first-one" commonjs.out
+
   # the same on musl, in a plain Alpine image that has no compiler at all
   install-check-musl:
     name: Install check alpine / ${{ matrix.arch }}
@@ -502,6 +522,7 @@ jobs:
           sparse-checkout: |
             .github/scripts
             examples/getting-started
+            examples/getting-started-commonjs
 
       - name: Install from npm without a toolchain, and check it in Alpine
         shell: bash
@@ -531,7 +552,11 @@ jobs:
             if [ "$installed" != true ]; then
               echo "xcl-lang@$VERSION did not install with its engine"; exit 1
             fi
-            node install-check.mjs "$ENGINE"'
+            node install-check.mjs "$ENGINE"
+            cp /work/examples/getting-started-commonjs/main.js main.cjs
+            rm -rf .xcl operations.log
+            node main.cjs | tee commonjs.out
+            grep -Fq "test.item.second two first-one" commonjs.out'
 
   # the GitHub release for the tag: the pull requests merged since the
   # previous tag, and the engine the package bundles
