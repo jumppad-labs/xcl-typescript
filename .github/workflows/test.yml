@@ -355,6 +355,14 @@ jobs:
           echo "$output"
           grep -Fq "$EXAMPLE_OUTPUT" <<< "$output"
 
+          # the CommonJS example, which require()s the same installed package;
+          # .cjs because the project's package.json is an ES module one
+          cp "$workspace/examples/getting-started-commonjs/main.js" main.cjs
+          rm -rf .xcl operations.log
+          output="$(node main.cjs)"
+          echo "$output"
+          grep -Fq "$EXAMPLE_OUTPUT" <<< "$output"
+
           # the parity suite against the installed dist and engine
           mkdir -p build/test
           cp -r "$workspace/build/test/test" build/test/test
@@ -376,6 +384,10 @@ jobs:
             -w /project -e EXAMPLE_OUTPUT "node:${NODE}-slim" sh -ec '
             rm -rf .xcl operations.log
             output="$(node build/main.js)"
+            echo "$output"
+            echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"
+            rm -rf .xcl operations.log
+            output="$(node main.cjs)"
             echo "$output"
             echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"'
 
@@ -457,6 +469,12 @@ jobs:
             echo "$output"
             echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"
 
+            cp /work/examples/getting-started-commonjs/main.js main.cjs
+            rm -rf .xcl operations.log
+            output="$(node main.cjs)"
+            echo "$output"
+            echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"
+
             mkdir -p build/test
             cp -r /work/build/test/test build/test/test
             cp -r /work/build/plugins build/plugins
@@ -471,6 +489,10 @@ jobs:
             -w /project -e EXAMPLE_OUTPUT node:${{ matrix.node }}-alpine sh -ec '
             rm -rf .xcl operations.log
             output="$(node build/main.js)"
+            echo "$output"
+            echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"
+            rm -rf .xcl operations.log
+            output="$(node main.cjs)"
             echo "$output"
             echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"'
 

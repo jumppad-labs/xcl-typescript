@@ -8,7 +8,7 @@
 npm install xcl-lang
 ```
 
-Node 22 or later. The package is ES module only and fully typed.
+Node 22.12 or later. The package is an ES module and fully typed, and CommonJS code can load it with `require("xcl-lang")`.
 
 Nothing else is needed: no Go, no C compiler, and nothing is downloaded on first use. The engine comes from a platform package installed alongside `xcl-lang`.
 
@@ -72,7 +72,7 @@ const item = await config.find("test.item.second");
 console.log(item.meta.id, item.attributes.value, item.attributes.input);
 ```
 
-The complete project is in [`examples/getting-started`](examples/getting-started), and CI runs it. `await using` closes the configuration when the block ends; `await config.close()` does the same by hand. The pretty logger shows each step of the apply on standard error; see [Pretty logger](#pretty-logger) for its options.
+The complete project is in [`examples/getting-started`](examples/getting-started), and CI runs it. The same program as plain CommonJS JavaScript, loading the package with `require()`, is in [`examples/getting-started-commonjs`](examples/getting-started-commonjs); CI runs that too. `await using` closes the configuration when the block ends; `await config.close()` does the same by hand. The pretty logger shows each step of the apply on standard error; see [Pretty logger](#pretty-logger) for its options.
 
 ## Your own types
 
