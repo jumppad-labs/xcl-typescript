@@ -86,9 +86,15 @@ function lineIndex(lines: readonly string[], needle: string): number {
   return index;
 }
 
-/** `text` with each line's time and every duration replaced, the parts that differ between runs. */
+/**
+ * `text` with each line's time replaced and every duration left out, the parts
+ * that differ between runs. A duration is left out rather than replaced
+ * because a zero duration is not written at all, and an operation faster than
+ * the clock's resolution (about 15 ms on Windows) can measure zero in one run
+ * and not the other.
+ */
 function normalised(text: string): string {
-  return text.replace(/^\d{1,2}:\d{2}(AM|PM) /gm, "<time> ").replace(/duration=\S+/g, "duration=<duration>");
+  return text.replace(/^\d{1,2}:\d{2}(AM|PM) /gm, "<time> ").replace(/ duration=\S+/g, "");
 }
 
 test("set up in one line, a run writes one line per event at info or above", { skip: needsPlugin }, async (t) => {

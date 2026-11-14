@@ -11,6 +11,14 @@
 #
 #   typescript-ref  the xcl-typescript ref to test (default main)
 #   xcl-ref         the xcl ref to build the engine from (default: xcl-ref.txt)
+#   scope           full (default) or smoke
+#
+# The smoke scope is for xcl's bindings check, which asks whether an engine
+# change breaks TypeScript, not whether the package builds and installs: the
+# test job runs on one runner per operating system (ubuntu-latest,
+# macos-latest, windows-latest) and one Node, 24, and the musl, package and
+# install jobs are skipped. The engine's behaviour differs by operating
+# system, not by Node version. Any value other than smoke runs the full suite.
 #
 # A called workflow checks out its caller by default, so every checkout here
 # names its repository. The final job, result, is the one check to require:
@@ -47,6 +55,11 @@ on:
         required: false
         type: string
         default: ''
+      scope:
+        description: full runs every platform and Node; smoke runs one runner per operating system on one Node
+        required: false
+        type: string
+        default: full
 
 env:
   GO_VERSION: '1.27.0'
@@ -64,8 +77,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
-        node: ['22', '24', '26']
+        os: ${{ fromJSON(inputs.scope == 'smoke' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest", "ubuntu-24.04-arm", "macos-latest", "macos-15-intel", "windows-latest", "windows-11-arm"]') }}
+        node: ${{ fromJSON(inputs.scope == 'smoke' && '["24"]' || '["22", "24", "26"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,6 +140,7 @@ jobs:
   # its JavaScript actions in an Alpine job container on the arm64 runners.
   test-musl:
     name: alpine / ${{ matrix.arch }} / node ${{ matrix.node }}
+    if: inputs.scope != 'smoke'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -186,6 +200,7 @@ jobs:
   # into the package, so the package's engine version check passes.
   package:
     name: Assemble the tarballs
+    if: inputs.scope != 'smoke'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -259,6 +274,7 @@ jobs:
   install:
     name: install ${{ matrix.os }} / node${{ matrix.node }}
     needs: package
+    if: inputs.scope != 'smoke'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -396,6 +412,7 @@ jobs:
   install-musl:
     name: install alpine / ${{ matrix.arch }} / node ${{ matrix.node }}
     needs: package
+    if: inputs.scope != 'smoke'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -497,7 +514,8 @@ jobs:
             echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"'
 
   # the one check to require: it fails unless every job above succeeded, and
-  # always runs, so a skipped or cancelled job can never pass for a success
+  # always runs, so a skipped or cancelled job can never pass for a success.
+  # In the smoke scope only the test job runs, and only its result counts.
   result:
     name: result
     needs: [test, test-musl, package, install, install-musl]
@@ -506,8 +524,18 @@ jobs:
     steps:
       - name: Check every job succeeded
         env:
+          SCOPE: ${{ inputs.scope }}
+          TEST: ${{ needs.test.result }}
           RESULTS: ${{ toJSON(needs.*.result) }}
         run: |
+          if [ "$SCOPE" = smoke ]; then
+            echo "smoke scope, test job result: $TEST"
+            if [ "$TEST" != success ]; then
+              echo "the test suite did not pass"
+              exit 1
+            fi
+            exit 0
+          fi
           echo "job results: $RESULTS"
           if [ "$(jq -r 'map(select(. != "success")) | length' <<< "$RESULTS")" != 0 ]; then
             echo "the test suite did not pass"
