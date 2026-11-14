@@ -77,6 +77,16 @@
         ]
       }
     },
+    "gotchas/timing-tests-need-a-baseline.md": {
+      "created": "2026-11-14T16:33:16.123038547Z",
+      "tracked_since": "2026-11-14T16:33:16.123038547Z",
+      "discoveries": {
+        "count": 0
+      },
+      "retrievals": {
+        "count": 0
+      }
+    },
     "gotchas/typedoc-throws-and-signature-text.md": {
       "created": "2026-11-10T09:25:14.629899902Z",
       "tracked_since": "2026-11-10T09:25:14.629899902Z",
