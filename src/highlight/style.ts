@@ -92,6 +92,9 @@ function applyWord(style: Style, word: string): boolean {
  * `bg:#rrggbb`. A later word for the same thing wins. A word that is none of
  * these is skipped: parsing never fails, and `validateTheme` reports the words
  * skipped.
+ *
+ * @param style The style string, words separated by spaces; an empty string sets nothing.
+ * @returns The style the words set, with everything they do not set off or empty.
  */
 export function parseStyle(style: string): Style {
   const parsed = emptyStyle();

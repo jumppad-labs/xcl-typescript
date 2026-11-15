@@ -17,6 +17,8 @@ const releases = new WeakMap<AbortSignal, () => void>();
  * as soon as the operation ends. Combined with a signal of the program's own
  * through `AbortSignal.any`, the listener is removed when it fires or when the
  * process exits.
+ *
+ * @returns A new signal, aborted by the next SIGINT, to pass to one operation.
  */
 export function interruptSignal(): AbortSignal {
   const controller = new AbortController();

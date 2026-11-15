@@ -6,7 +6,7 @@ export { engineVersion } from "./engine-version.js";
 export * from "./errors.js";
 export { Event, EventDataLevel } from "./events.js";
 export type { LevelLogger, ToLoggerOptions } from "./events.js";
-/** Events: the `Event` class, event data levels, and `toLogger`, which sends events to a logger of your own. */
+/** Events: the `Event` class, the `EventDataLevel` levels, and `toLogger`, which sends events to a logger of your own. */
 export * as events from "./events.js";
 export { Any, Attribute, Block, Blocks, Computed, Func, Int, Label, NamedBlocks } from "./decorators.js";
 export type { ClassDecorator, EntityClass, FieldDecorator, FieldOptions, FuncOptions, MethodDecorator, TypeSpec } from "./decorators.js";
@@ -14,7 +14,7 @@ export { Entity, Meta } from "./entity.js";
 export { Sensitive } from "./sensitive.js";
 export type { SensitiveFunction, SensitiveOptions } from "./sensitive.js";
 export { interruptSignal } from "./interrupt.js";
-/** Masks for sensitive values in state and events: `aes256gcm`, `hmacSha256`, `redact` and `omit`. */
+/** Masks for sensitive values in state and events: the `Mask` type and the functions that build one, `aes256gcm`, `hmacSha256`, `redact` and `omit`. */
 export * as mask from "./mask.js";
 export type { Mask } from "./mask.js";
 export { GitHubRegistry, LocalRegistry } from "./registry.js";
@@ -33,5 +33,5 @@ export { forStream } from "./highlight/stream.js";
 export { loadVSCodeTheme } from "./highlight/vscode.js";
 export { formatError, printDiff, printError } from "./print.js";
 export type { FormatOptions, PrintOptions } from "./print.js";
-/** The pretty logger: `prettylog.handler` writes every event as a readable line, and `prettylog.levelFromEnv` reads `XCL_LOG_LEVEL`. */
+/** The pretty logger: `prettylog.handler` writes each event at or above a minimum level as a readable line, and `prettylog.levelFromEnv` reads that level from `XCL_LOG_LEVEL`. */
 export * as prettylog from "./prettylog.js";

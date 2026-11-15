@@ -18,6 +18,9 @@ import type { Theme } from "./theme.js";
  * ```ts
  * writeFileSync("xcl.css", css({ ...defaultTheme, [Kind.Attribute]: "#ff8800" }));
  * ```
+ *
+ * @param theme The theme to style the classes from.
+ * @returns The stylesheet, one rule per line, or an empty string for a theme that styles nothing.
  */
 export function css(theme: Theme): string {
   const rules: string[] = [];

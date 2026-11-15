@@ -44,6 +44,9 @@ const DEFAULT_WIDTH = 80;
  *   process.exitCode = 1;
  * }
  * ```
+ *
+ * @param err The error to print, or any other value.
+ * @param options The writer, by default `process.stderr`, and the format, theme and wrapping width.
  */
 export function printError(err: unknown, options: PrintOptions = {}): void {
   const out = options.out ?? process.stderr;
@@ -58,6 +61,10 @@ export function printError(err: unknown, options: PrintOptions = {}): void {
 /**
  * `err` as `printError` prints it, as a string. The HTML formats return markup
  * already escaped, ready to put into a page.
+ *
+ * @param err The error to format, or any other value.
+ * @param options The format, theme and wrapping width.
+ * @returns The text `printError` would write, ending with a line break for an error printed as its message.
  */
 export function formatError(err: unknown, options: FormatOptions = {}): string {
   const tokens = tokensOf(err);
@@ -77,6 +84,10 @@ export function formatError(err: unknown, options: FormatOptions = {}): string {
  *
  * Throws `TypeError` for a diff with no labelled text, such as one built by
  * hand: only a diff returned by `Config.diff` carries it.
+ *
+ * @param diff The diff to print, as `Config.diff` returns it.
+ * @param options The writer, by default `process.stdout`, and the format and theme; a change summary is never wrapped.
+ * @throws {@link TypeError} when the diff has no labelled text, such as one built by hand.
  */
 export function printDiff(diff: Diff, options: Omit<PrintOptions, "width"> = {}): void {
   if (diff.tokens.length === 0) {

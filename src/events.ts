@@ -79,8 +79,19 @@ export class Event {
    * The entity the event's data holds, or undefined when the event carries no
    * data. With a class it is an instance of that class; otherwise the class
    * registered for its type, or a generic `Entity`.
+   *
+   * @param type The class to build, registered on the configuration for the entity's type.
+   * @returns A new instance of `type` holding the entity's values, or undefined when the event carries no data.
+   * @throws {@link NotRegisteredError} when the configuration did not register `type`.
+   * @throws {@link TypeMismatchError} when the entity is not of the block type `type` is registered for.
    */
   entity<T extends object>(type: EntityClass<T>): T | undefined;
+  /**
+   * The entity the event's data holds, as an instance of the class registered
+   * for its type, or a generic `Entity` for a type with none.
+   *
+   * @returns The entity, or undefined when the event carries no data.
+   */
   entity(): object | undefined;
   entity(type?: EntityClass): object | undefined {
     if (this.data === undefined) {
@@ -119,13 +130,33 @@ function metaOf(json: Uint8Array): Record<string, unknown> {
  * logger expects.
  */
 export interface LevelLogger {
-  /** Writes at debug. */
+  /**
+   * Writes at debug.
+   *
+   * @param args The fields and the message, in the order the logger expects.
+   * @returns Anything; the result is ignored.
+   */
   debug(...args: unknown[]): unknown;
-  /** Writes at info. */
+  /**
+   * Writes at info.
+   *
+   * @param args The fields and the message, in the order the logger expects.
+   * @returns Anything; the result is ignored.
+   */
   info(...args: unknown[]): unknown;
-  /** Writes at warn. */
+  /**
+   * Writes at warn.
+   *
+   * @param args The fields and the message, in the order the logger expects.
+   * @returns Anything; the result is ignored.
+   */
   warn(...args: unknown[]): unknown;
-  /** Writes at error. */
+  /**
+   * Writes at error.
+   *
+   * @param args The fields and the message, in the order the logger expects.
+   * @returns Anything; the result is ignored.
+   */
   error(...args: unknown[]): unknown;
 }
 
@@ -147,6 +178,10 @@ export interface ToLoggerOptions {
  * const cfg = new Config({ onEvent: events.toLogger(pino()) });
  * const other = new Config({ onEvent: events.toLogger(winstonLogger, { order: "message-first" }) });
  * ```
+ *
+ * @param logger The logger written to.
+ * @param options The order the logger takes the fields and the message in.
+ * @returns A handler for the configuration's `onEvent`, writing each event it is given to `logger`.
  */
 export function toLogger(logger: LevelLogger, options: ToLoggerOptions = {}): (event: Event) => void {
   const messageFirst = options.order === "message-first";

@@ -19,6 +19,14 @@ import type { Theme } from "./theme.js";
  * It needs no configuration: the engine starts on first use. A theme the engine
  * cannot use rejects with `InvalidThemeError`, whose `details.reason` says what
  * was wrong and where.
+ *
+ * @param source The theme file's path, or its contents as bytes.
+ * @returns A promise resolving to a theme holding a style for each kind the VS Code theme styles, in ascending order of kind.
+ * @throws {@link InvalidThemeError} when the engine cannot use the theme; `details.reason` says what was wrong and where.
+ * @throws {@link EngineNotFoundError} when the engine package for this platform is not installed or the engine cannot be started.
+ * @throws {@link EngineVersionError} when the engine is not the version this package was built for.
+ * @throws {@link EngineExitedError} when the engine stops before it answers.
+ * @throws {@link Error} when `source` is a path that cannot be read, such as one that does not exist; it is Node's file system error.
  */
 export async function loadVSCodeTheme(source: string | Uint8Array): Promise<Theme> {
   const data = typeof source === "string" ? await readFile(source) : source;

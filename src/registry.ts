@@ -53,6 +53,11 @@ export class LocalRegistry implements Registry {
   readonly #registrations: Registration[] = [];
   readonly #functions: RegisteredFunction[] = [];
 
+  /**
+   * An empty local registry.
+   *
+   * @param options Takes `pluginPattern`, the files a plugin directory is searched for.
+   */
   constructor(options: LocalRegistryOptions = {}) {
     this.#pluginPattern = options.pluginPattern ?? "";
   }
@@ -60,6 +65,9 @@ export class LocalRegistry implements Registry {
   /**
    * Declares decorated entity classes as block types. Each class is constructed
    * once, and anything wrong with its definition throws `SchemaError` here.
+   *
+   * @param classes The decorated entity classes to declare, in order.
+   * @throws {@link SchemaError} when a class's definition is wrong; the message names the class and field.
    */
   register(...classes: EntityClass[]): void {
     this.#registrations.push(...classes.map(registrationOf));
@@ -74,6 +82,9 @@ export class LocalRegistry implements Registry {
    * Offers every `@Func` method of `instance` to configuration, bound to it. A
    * name a builtin or another function uses is refused when the configuration
    * is created.
+   *
+   * @param instance The object whose `@Func` methods, its own class's and its parents', to offer.
+   * @throws {@link SchemaError} when a `@Func` method gives a parameter or result type that cannot cross to configuration.
    */
   registerFunctions(instance: object): void {
     const seen = new Set<string>();
@@ -100,6 +111,9 @@ export class LocalRegistry implements Registry {
   /**
    * Uses the external plugin that `command` starts: a plugin binary's path, or
    * an array holding a program and its arguments.
+   *
+   * @param command A plugin binary's path, or an array holding a program and its arguments.
+   * @throws {@link SchemaError} when `command` is an empty array.
    */
   registerExternalPlugin(command: string | readonly string[]): void {
     const words = typeof command === "string" ? [command] : [...command];
@@ -109,7 +123,11 @@ export class LocalRegistry implements Registry {
     this.#externalPlugins.push(words);
   }
 
-  /** Uses every plugin binary found in the directory at `path`. The engine expands a leading `~/`. */
+  /**
+   * Uses every plugin binary found in the directory at `path`. The engine expands a leading `~/`.
+   *
+   * @param path The directory to search for plugin binaries.
+   */
   registerPluginDirectory(path: string): void {
     this.#pluginDirectories.push(path);
   }
@@ -149,11 +167,21 @@ export class GitHubRegistry implements Registry {
   readonly #plugins: { repository: string; version: string }[] = [];
   readonly #registrations: Registration[] = [];
 
+  /**
+   * A GitHub registry with no plugins yet.
+   *
+   * @param options The trusted signing keys, install directory, token and API address.
+   */
   constructor(options: GitHubRegistryOptions = {}) {
     this.#options = options;
   }
 
-  /** Declares decorated entity classes as block types on this registry, as `LocalRegistry.register` does. */
+  /**
+   * Declares decorated entity classes as block types on this registry, as `LocalRegistry.register` does.
+   *
+   * @param classes The decorated entity classes to declare, in order.
+   * @throws {@link SchemaError} when a class's definition is wrong; the message names the class and field.
+   */
   register(...classes: EntityClass[]): void {
     this.#registrations.push(...classes.map(registrationOf));
   }
@@ -163,7 +191,13 @@ export class GitHubRegistry implements Registry {
     return this.#registrations;
   }
 
-  /** Uses the plugin released by `repository` (`owner/repo`) at `version` (`vX.Y.Z`). */
+  /**
+   * Uses the plugin released by `repository` (`owner/repo`) at `version` (`vX.Y.Z`).
+   *
+   * @param repository The GitHub repository the plugin is released from, as `owner/repo`.
+   * @param version The release's tag, as `vX.Y.Z`.
+   * @throws {@link SchemaError} when `repository` or `version` is empty.
+   */
   registerPlugin(repository: string, version: string): void {
     if (!repository || !version) {
       throw new SchemaError("a GitHub plugin needs a repository and a version");

@@ -10,6 +10,9 @@ import type { Theme } from "./theme.js";
  * `InvalidStyleError` naming every word a style does not understand otherwise,
  * in the order of the kinds and then of the words. Printing with a theme that
  * does not validate still works: the words are skipped.
+ *
+ * @param theme The theme to check.
+ * @throws {@link InvalidStyleError} when any style in the theme holds a word a style does not understand; its `words` names each one.
  */
 export function validateTheme(theme: Theme): void {
   const kinds = Object.keys(theme)

@@ -111,7 +111,14 @@ export interface Entity {
   readonly meta: Meta;
   /** The entity's attributes, by camelCase name. Values are as the engine wrote them. */
   readonly attributes: Readonly<Record<string, unknown>>;
-  /** The entity as an instance of its registered class. Throws `NotRegisteredError` for a class this configuration did not register. */
+  /**
+   * The entity as an instance of its registered class. Throws `NotRegisteredError` for a class this configuration did not register.
+   *
+   * @param type The class to build, registered on this configuration for the entity's type.
+   * @returns A new instance of `type` holding the entity's values.
+   * @throws {@link NotRegisteredError} when this configuration did not register `type`.
+   * @throws {@link TypeMismatchError} when `type` is registered for a different block type than the entity's.
+   */
   as<T extends object>(type: EntityClass<T>): T;
 }
 

@@ -12,13 +12,25 @@ const MARKER = "(sensitive)";
 
 /** A secret value, printed as `(sensitive)` and read only through `reveal`. */
 export interface Sensitive<T> {
-  /** The real value, or undefined when it was masked before it reached this program. */
+  /**
+   * The real value, or undefined when it was masked before it reached this program.
+   *
+   * @returns The value held, or undefined when `isRedacted` is true.
+   */
   reveal(): T | undefined;
   /** Whether the value was masked before it reached this program. */
   readonly isRedacted: boolean;
-  /** Always `(sensitive)`. */
+  /**
+   * Always `(sensitive)`.
+   *
+   * @returns The marker `(sensitive)`, never the value.
+   */
   toString(): string;
-  /** Always `(sensitive)`. */
+  /**
+   * Always `(sensitive)`.
+   *
+   * @returns The marker `(sensitive)`, so `JSON.stringify` never writes the value.
+   */
   toJSON(): string;
 }
 
@@ -60,11 +72,30 @@ export interface SensitiveOptions {
 
 /** Builds a secret value, or declares a sensitive field. */
 export interface SensitiveFunction {
-  /** A value holding `value`. */
+  /**
+   * A value holding `value`.
+   *
+   * @param value The secret value to hold.
+   */
   new <T>(value: T): Sensitive<T>;
-  /** A value whose real value was masked before it reached this program. */
+  /**
+   * A value whose real value was masked before it reached this program.
+   *
+   * @returns A redacted value: `isRedacted` is true and `reveal` returns undefined.
+   */
   redacted<T>(): Sensitive<T>;
-  /** Declares a sensitive attribute: masked in events and state. */
+  /**
+   * Declares a sensitive attribute: masked in events and state.
+   *
+   * The decorator itself never throws. Registering the class throws
+   * {@link SchemaError} when `type` is not one the engine can hold as a
+   * sensitive value (`String`, `Number`, `Int`, `Boolean`, `[String]` or
+   * `{ map: String }`), or when the field's initializer is not a `Sensitive` value.
+   *
+   * @param type The attribute's type.
+   * @param options Whether the attribute can be left out of configuration.
+   * @returns A decorator recording the field as a sensitive attribute of `type`.
+   */
   (type: TypeSpec, options?: SensitiveOptions): FieldDecorator;
 }
 

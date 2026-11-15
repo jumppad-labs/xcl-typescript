@@ -44,6 +44,10 @@ export const defaultTheme: Theme = Object.freeze({
  * How `kind` looks in `theme`: its own style, else its category's, else
  * `Kind.Text`'s. A style is taken whole, never merged with its category's, and
  * words a style does not understand are skipped.
+ *
+ * @param theme The theme to look the kind up in.
+ * @param kind A `Kind`, or a number this package does not know.
+ * @returns The parsed style, which sets nothing when neither the kind, its category nor `Kind.Text` is styled.
  */
 export function styleFor(theme: Theme, kind: number): Style {
   const own = theme[kind];
