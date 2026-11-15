@@ -38,4 +38,11 @@ test:
 test-unit:
 	npm run test:unit
 
-.PHONY: protos engine plugins test test-unit
+# check-docs fails naming every public name or member with no doc comment, or
+# a @throws that does not link its error's type, as CI's check-docs job does,
+# and runs the reference tool's tests.
+check-docs:
+	node .github/scripts/api-reference.mjs --check
+	node --test .github/scripts/api-reference.test.mjs
+
+.PHONY: protos engine plugins test test-unit check-docs

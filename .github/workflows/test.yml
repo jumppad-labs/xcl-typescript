@@ -513,12 +513,38 @@ jobs:
             echo "$output"
             echo "$output" | grep -Fq "$EXAMPLE_OUTPUT"'
 
+  # every public name and member has a doc comment, and every @throws names
+  # its error's type, as the reference on xcl.dev needs; the reference tool's
+  # own tests run here too
+  check-docs:
+    name: Check the doc comments
+    if: inputs.scope != 'smoke'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jumppad-labs/xcl-typescript
+          ref: ${{ inputs.typescript-ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Check the doc comments
+        run: node .github/scripts/api-reference.mjs --check
+
+      - name: Test the reference tool
+        run: node --test .github/scripts/api-reference.test.mjs
+
   # the one check to require: it fails unless every job above succeeded, and
   # always runs, so a skipped or cancelled job can never pass for a success.
   # In the smoke scope only the test job runs, and only its result counts.
   result:
     name: result
-    needs: [test, test-musl, package, install, install-musl]
+    needs: [test, test-musl, package, install, install-musl, check-docs]
     if: always()
     runs-on: ubuntu-latest
     steps:
