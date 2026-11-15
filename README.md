@@ -321,6 +321,12 @@ Constructing a `Config` starts nothing. The configuration is created in the engi
 
 The package has its own version, and bundles the xcl engine release pinned in `xcl-ref.txt` when it was built; `await engineVersion()` reports it, starting the engine if it is not running. The package refuses to run against any other engine: `engineVersion()` rejects with `EngineVersionError` for an engine of another version, and with `EngineNotFoundError` when there is none.
 
+## Development
+
+Every name the package exports, and every public method and property, has a doc comment. `node .github/scripts/api-reference.mjs --check` fails naming any that has none, and with `--out` the same script writes the package's API as the data the reference on xcl.dev is built from. Write an error a function throws as `@throws {@link ErrorClass} when ...`, so the reference can name its type.
+
+The script reads the package with [TypeDoc](https://typedoc.org), pinned as a development dependency because it is the one reader that gives the doc comments, signatures and inherited members of the TypeScript source as a model to walk. [markdown-it](https://github.com/markdown-it/markdown-it), also a development dependency and the version TypeDoc itself uses, renders the doc comments' Markdown to the HTML the reference shows. Neither is a dependency of `xcl-lang`.
+
 ## Releases and the engine pin
 
 Releases are automatic, and follow [xcl's release process](https://github.com/jumppad-labs/xcl#releases). Every pull request carries exactly one of the labels `patch`, `minor`, `major` or `no-release`, and merging it tags and publishes the next version of this package to npm, `xcl-lang` and its eight platform packages at the same version, with npm trusted publishing and provenance, and a GitHub release listing the merged pull requests and naming the bundled engine. The package's version line is its own: a fix here releases TypeScript alone, with no xcl release.
