@@ -116,6 +116,70 @@ console.log(web.image, web.replicas, `${web.password}`);
 
 A field with no initializer is required, and an initializer makes it optional with that default. Properties are camelCase in TypeScript and snake_case in configuration. A class with no constructor arguments is required, because xcl constructs it to read its fields, and anything wrong with a definition throws `SchemaError` from `register`, naming the class and field.
 
+### Object values and references
+
+An attribute can hold a value described by a class of your own. Pass the class as a function, as `@Block` takes it: `@Attribute(() => Endpoint)` for one object, `@Attribute([() => Endpoint])` for a list of them and `@Attribute({ map: () => Endpoint })` for a map. Configuration writes the value with `=`, and checks it against the class's fields, which keep the rules they have on an entity type: required, defaulted, optional, sensitive, computed, lists, maps and further objects.
+
+```ts
+import { Attribute, Entity, Int, Label, LocalRegistry, Meta } from "xcl-lang";
+
+class Endpoint {
+  @Attribute(Int)
+  port!: number;
+
+  @Attribute(Boolean)
+  tls = false;
+
+  @Attribute(String, { optional: true })
+  path?: string;
+}
+
+@Entity("database", "postgres")
+class Postgres {
+  @Meta()
+  meta!: Meta;
+
+  @Attribute(String)
+  location!: string;
+
+  @Attribute(Int)
+  port = 5432;
+}
+
+@Entity("app")
+class App {
+  @Label()
+  name!: string;
+
+  @Attribute(() => Endpoint)
+  defaultEndpoint!: Endpoint;
+
+  @Attribute([() => Endpoint])
+  endpoints: Endpoint[] = [];
+
+  @Attribute({ map: () => Endpoint })
+  routes: Record<string, Endpoint> = {};
+
+  @Attribute(() => Postgres)
+  database!: Postgres;
+
+  @Attribute([() => Postgres])
+  databases: Postgres[] = [];
+}
+```
+
+```hcl
+app "web" {
+  default_endpoint = { port = 80, tls = true }
+  endpoints        = [{ port = 8080 }, { port = 8443, tls = true }]
+  routes           = { public = { port = 80 } }
+  database         = database.postgres.main
+  databases        = [database.postgres.a, database.postgres.b]
+}
+```
+
+Lookups, loads from state and event data all return the values as instances of their classes: `web.defaultEndpoint.port` is `80`, and `web.database` is a `Postgres`. A class that declares a `@Label()` or `@Meta()` field is an entity value, set from a reference to a block: it receives the referenced block's attributes, its labels and, in its `@Meta()` field, its metadata, so `web.database.meta.id` is `"database.postgres.main"`. Any other class is a plain object. As in Go, a reference is checked by its shape when the configuration is applied: a block of another type whose attributes fit is accepted. A reference takes no default other than an empty list or map, and an object can't be `@Sensitive`; mark its fields sensitive instead.
+
 ## Functions
 
 ```ts

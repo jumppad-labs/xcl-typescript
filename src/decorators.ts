@@ -10,14 +10,38 @@
  * the class once, so both forms have filled the same table by then.
  */
 
+import type { SchemaError } from "./errors.js";
+
 /** Marks an attribute as an integer. */
 export const Int: unique symbol = Symbol("xcl.Int");
 
 /** Marks an attribute as holding a value of any type. */
 export const Any: unique symbol = Symbol("xcl.Any");
 
-/** A field's type: `String`, `Number`, `Boolean`, `Int`, `Any`, `[T]` for a list or `{ map: T }` for a map. */
-export type TypeSpec = StringConstructor | NumberConstructor | BooleanConstructor | typeof Int | typeof Any | readonly [TypeSpec] | { readonly map: TypeSpec };
+/**
+ * A function returning a class, such as `() => Endpoint`, used as a field's
+ * type for a value described by that class. It is a function rather than the
+ * class itself so a field can name a class declared further down the file, as
+ * a block's thunk can.
+ *
+ * A class that declares neither a `@Label()` nor a `@Meta()` field is an
+ * object value, written in configuration as `{ port = 80, tls = true }` and
+ * checked against the class's fields. A class that declares either is an
+ * entity value, as a reference to a block such as
+ * `database = database.postgres.main` gives it: it receives the referenced
+ * block's attributes, its labels in its `@Label()` fields and its metadata in
+ * its `@Meta()` field. Either class follows the entity-class rules: it is
+ * constructible with no arguments, its initializers are its defaults and its
+ * fields use the same decorators.
+ */
+export type ClassThunk = () => EntityClass;
+
+/**
+ * A field's type: `String`, `Number`, `Boolean`, `Int`, `Any`, a
+ * {@link ClassThunk} such as `() => Endpoint` for an object or entity value
+ * described by that class, `[T]` for a list or `{ map: T }` for a map.
+ */
+export type TypeSpec = StringConstructor | NumberConstructor | BooleanConstructor | typeof Int | typeof Any | ClassThunk | readonly [TypeSpec] | { readonly map: TypeSpec };
 
 /** What a field is in configuration. */
 export type FieldKind = "attribute" | "sensitive" | "computed" | "block" | "blocks" | "namedBlocks" | "label" | "meta";
@@ -74,6 +98,32 @@ export interface ClassDecorator {
    * @param target The class decorated.
    */
   <C extends abstract new (...args: never[]) => object>(target: C): void;
+}
+
+/** Whether a type is a class thunk: any function that is not `String`, `Number` or `Boolean`. @internal */
+export function isClassThunk(spec: unknown): spec is ClassThunk {
+  return typeof spec === "function" && spec !== String && spec !== Number && spec !== Boolean;
+}
+
+/**
+ * Whether a class is sent as an entity value, as a reference to a block gives
+ * it, rather than a plain object: it declares a `@Label()` or `@Meta()` field,
+ * so it can receive the referenced block's labels and metadata. The class must
+ * have been constructed once, as registration does, for its fields to be
+ * recorded under standard decorators. @internal
+ */
+export function isEntityClass(ctor: object): boolean {
+  return fieldsOf(ctor).some((field) => field.kind === "label" || field.kind === "meta");
+}
+
+/** Whether a type is a list, `[T]`. @internal */
+export function isListSpec(spec: unknown): spec is readonly [TypeSpec] {
+  return Array.isArray(spec) && spec.length === 1;
+}
+
+/** Whether a type is a map, `{ map: T }`. @internal */
+export function isMapSpec(spec: unknown): spec is { readonly map: TypeSpec } {
+  return typeof spec === "object" && spec !== null && !Array.isArray(spec) && "map" in spec;
 }
 
 const fieldTables = new WeakMap<object, Map<string, FieldSpec>>();
@@ -141,6 +191,18 @@ export function entityDecorator(type: string, subtype = ""): ClassDecorator {
 /**
  * Declares an attribute.
  *
+ * A {@link ClassThunk}, alone or as a list's or map's element, declares a value
+ * described by a class: `@Attribute(() => Endpoint)`,
+ * `@Attribute([() => Endpoint])` or `@Attribute({ map: () => Endpoint })`. An
+ * instance of the class as the initializer is the attribute's default. A
+ * class with a `@Label()` or `@Meta()` field is set from a reference to a
+ * block, and takes no default other than an empty list or map.
+ *
+ * The decorator itself never throws. Registering the class throws
+ * {@link SchemaError} for a type with no configuration form, a class that
+ * holds itself, an initializer that disagrees with the type, or a default on
+ * a reference.
+ *
  * @param type The attribute's type.
  * @param options Whether the attribute can be left out of configuration.
  * @returns A decorator recording the field as an attribute of `type`.
@@ -150,7 +212,8 @@ export function Attribute(type: TypeSpec, options: FieldOptions = {}): FieldDeco
 }
 
 /**
- * Declares a field set by a provider, never in configuration.
+ * Declares a field set by a provider, never in configuration. It takes the
+ * same types as {@link Attribute}, a {@link ClassThunk} included.
  *
  * @param type The field's type.
  * @returns A decorator recording the field as a computed value of `type`.

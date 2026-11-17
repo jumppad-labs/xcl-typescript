@@ -260,3 +260,408 @@ test("record bytes are the record as JSON", () => {
 
   assert.deepEqual(JSON.parse(new TextDecoder().decode(recordBytes(app, classes))), recordOf(app, classes));
 });
+
+// Object values
+
+class Endpoint {
+  @Attribute(Int) port!: number;
+  @Attribute(Boolean) tls = false;
+  @Attribute(String, { optional: true }) path?: string;
+  @Sensitive(String, { optional: true }) token?: Sensitive<string>;
+}
+
+class Probe {
+  @Attribute(String) path!: string;
+}
+
+class Check {
+  @Attribute(Int) interval = 10;
+  @Attribute(() => Probe) probe!: Probe;
+}
+
+@Entity("service")
+class Service {
+  @Meta() meta!: Meta;
+  @Attribute(() => Endpoint) defaultEndpoint!: Endpoint;
+  @Attribute([() => Endpoint]) endpoints: Endpoint[] = [];
+  @Attribute({ map: () => Endpoint }) routes: Record<string, Endpoint> = {};
+  @Attribute(() => Check, { optional: true }) check?: Check;
+}
+
+const objectClasses = new ClassMap([registrationOf(Service)]);
+
+function endpoint(port: number, tls = false): Endpoint {
+  const built = new Endpoint();
+  built.port = port;
+  built.tls = tls;
+  return built;
+}
+
+function lookedUpService(): Record<string, unknown> {
+  return {
+    meta: { id: "service.web", name: "web", type: "service" },
+    default_endpoint: { port: 80, tls: true, token: "(sensitive)", extra: "kept" },
+    endpoints: [
+      { port: 80, tls: false },
+      { port: 443, tls: true },
+    ],
+    routes: { public: { port: 80, tls: false } },
+    check: { interval: 5, probe: { path: "/healthz" } },
+  };
+}
+
+test("a looked-up entity holding objects that was not changed is written exactly as the engine wrote it", () => {
+  const source = lookedUpService();
+
+  const record = recordOf(typedEntity(source, Service, objectClasses), objectClasses);
+
+  assert.deepEqual(record.default_endpoint, { port: 80, tls: true, token: "(sensitive)", extra: "kept" });
+  assert.deepEqual(record.endpoints, [
+    { port: 80, tls: false },
+    { port: 443, tls: true },
+  ]);
+  assert.deepEqual(record.routes, { public: { port: 80, tls: false } });
+  assert.deepEqual(record.check, { interval: 5, probe: { path: "/healthz" } });
+});
+
+test("a field changed inside an object is written changed, its untouched fields as the engine wrote them", () => {
+  const entity = typedEntity(lookedUpService(), Service, objectClasses);
+  entity.defaultEndpoint.port = 81;
+
+  const record = recordOf(entity, objectClasses);
+
+  // a changed object is written from its declared fields, as a changed block is
+  assert.deepEqual(record.default_endpoint, { port: 81, tls: true, token: "(sensitive)" });
+});
+
+test("a field changed inside an object held by an object is written changed", () => {
+  const entity = typedEntity(lookedUpService(), Service, objectClasses);
+  (entity.check as Check).probe.path = "/ready";
+
+  const record = recordOf(entity, objectClasses);
+
+  assert.deepEqual(record.check, { interval: 5, probe: { path: "/ready" } });
+});
+
+test("a list element changed is written changed, the other elements as the engine wrote them", () => {
+  const entity = typedEntity(lookedUpService(), Service, objectClasses);
+  (entity.endpoints[1] as Endpoint).port = 8443;
+
+  const record = recordOf(entity, objectClasses);
+
+  assert.deepEqual(record.endpoints, [
+    { port: 80, tls: false },
+    { port: 8443, tls: true },
+  ]);
+});
+
+test("a map entry added is written beside the entries the engine wrote", () => {
+  const entity = typedEntity(lookedUpService(), Service, objectClasses);
+  entity.routes.admin = endpoint(9000);
+
+  const record = recordOf(entity, objectClasses);
+
+  assert.deepEqual(record.routes, { public: { port: 80, tls: false }, admin: { port: 9000, tls: false } });
+});
+
+test("a sensitive value changed inside an object is written as the new value", () => {
+  const entity = typedEntity(lookedUpService(), Service, objectClasses);
+  entity.defaultEndpoint.token = new Sensitive("rotated");
+
+  const record = recordOf(entity, objectClasses);
+
+  assert.equal((record.default_endpoint as Record<string, unknown>).token, "rotated");
+});
+
+test("a hand-built entity holding objects is written as plain JSON of their fields", () => {
+  const service = new Service();
+  service.meta = { name: "web" };
+  service.defaultEndpoint = endpoint(80, true);
+  service.defaultEndpoint.path = "/api";
+  service.endpoints = [endpoint(80), endpoint(443, true)];
+  service.routes = { public: endpoint(8080) };
+  service.check = new Check();
+  service.check.probe = new Probe();
+  service.check.probe.path = "/healthz";
+
+  assert.deepEqual(recordOf(service, objectClasses), {
+    meta: { type: "service", name: "web" },
+    default_endpoint: { port: 80, tls: true, path: "/api" },
+    endpoints: [
+      { port: 80, tls: false },
+      { port: 443, tls: true },
+    ],
+    routes: { public: { port: 8080, tls: false } },
+    check: { interval: 10, probe: { path: "/healthz" } },
+  });
+});
+
+test("a hand-built object's sensitive field is written as its real value", () => {
+  const service = new Service();
+  service.meta = { name: "web" };
+  service.defaultEndpoint = endpoint(80);
+  service.defaultEndpoint.token = new Sensitive("s3cret");
+
+  assert.deepEqual(recordOf(service, objectClasses).default_endpoint, { port: 80, tls: false, token: "s3cret" });
+});
+
+test("a hand-built entity holding objects serialises to JSON for the engine", () => {
+  const service = new Service();
+  service.meta = { name: "web" };
+  service.defaultEndpoint = endpoint(80);
+
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(recordBytes(service, objectClasses))), {
+    meta: { type: "service", name: "web" },
+    default_endpoint: { port: 80, tls: false },
+    endpoints: [],
+    routes: {},
+  });
+});
+
+// Entity values: references to blocks
+
+@Entity("database", "postgres")
+class Database {
+  @Meta() meta!: Meta;
+  @Attribute(String) location!: string;
+  @Attribute(Int) port = 5432;
+}
+
+@Entity("database", "postgres")
+class SubtypedDatabase {
+  @Label() kind!: string;
+  @Label() title!: string;
+  @Attribute(String) location!: string;
+}
+
+@Entity("store")
+class Store {
+  @Label() name!: string;
+  @Attribute(String) location!: string;
+}
+
+class UndeclaredStore {
+  @Label() kind!: string;
+  @Label() title!: string;
+  @Attribute(String) location!: string;
+}
+
+@Entity("app")
+class Consumer {
+  @Meta() meta!: Meta;
+  @Attribute(() => Database) database!: Database;
+  @Attribute([() => Database]) databases: Database[] = [];
+  @Attribute({ map: () => Database }) byRole: Record<string, Database> = {};
+  @Attribute(() => SubtypedDatabase, { optional: true }) subtyped?: SubtypedDatabase;
+  @Attribute(() => Store, { optional: true }) store?: Store;
+  @Attribute(() => UndeclaredStore, { optional: true }) undeclared?: UndeclaredStore;
+}
+
+const referenceClasses = new ClassMap([registrationOf(Consumer), registrationOf(Database)]);
+
+function lookedUpConsumer(): Record<string, unknown> {
+  return {
+    meta: {
+      id: "app.web",
+      name: "web",
+      type: "app",
+      references: { database: "database.postgres.main", databases: "[database.postgres.main, database.postgres.replica]" },
+    },
+    database: {
+      meta: { id: "database.postgres.main", name: "main", type: "database", subtype: "postgres", file: "/config/main.xcl", line: 1, column: 1 },
+      location: "main.internal",
+      port: 5432,
+    },
+    databases: [
+      {
+        meta: { id: "database.postgres.main", name: "main", type: "database", subtype: "postgres", file: "/config/main.xcl", line: 1, column: 1 },
+        location: "main.internal",
+        port: 5432,
+      },
+      {
+        meta: { id: "database.postgres.replica", name: "replica", type: "database", subtype: "postgres", file: "/config/main.xcl", line: 5, column: 1 },
+        location: "replica.internal",
+        port: 6432,
+        disabled: true,
+      },
+    ],
+  };
+}
+
+function database(name: string, location: string): Database {
+  const built = new Database();
+  built.meta = { name };
+  built.location = location;
+  return built;
+}
+
+test("a looked-up entity holding references that was not changed is written exactly as the engine wrote it", () => {
+  const source = lookedUpConsumer();
+
+  const record = recordOf(typedEntity(source, Consumer, referenceClasses), referenceClasses);
+
+  assert.deepEqual(record, lookedUpConsumer());
+});
+
+test("an attribute changed inside a looked-up reference is written changed, with the referenced block's metadata", () => {
+  const entity = typedEntity(lookedUpConsumer(), Consumer, referenceClasses);
+  entity.database.location = "moved.internal";
+
+  const record = recordOf(entity, referenceClasses);
+
+  assert.deepEqual(record.database, {
+    meta: { id: "database.postgres.main", name: "main", type: "database", subtype: "postgres", file: "/config/main.xcl", line: 1, column: 1 },
+    location: "moved.internal",
+    port: 5432,
+  });
+});
+
+test("a list element changed inside a looked-up list of references is written with its metadata and disabled, the other element as the engine wrote it", () => {
+  const entity = typedEntity(lookedUpConsumer(), Consumer, referenceClasses);
+  (entity.databases[1] as Database).port = 7000;
+
+  const record = recordOf(entity, referenceClasses);
+
+  assert.deepEqual(record.databases, [
+    {
+      meta: { id: "database.postgres.main", name: "main", type: "database", subtype: "postgres", file: "/config/main.xcl", line: 1, column: 1 },
+      location: "main.internal",
+      port: 5432,
+    },
+    {
+      meta: { id: "database.postgres.replica", name: "replica", type: "database", subtype: "postgres", file: "/config/main.xcl", line: 5, column: 1 },
+      disabled: true,
+      location: "replica.internal",
+      port: 7000,
+    },
+  ]);
+});
+
+test("a hand-built reference is written with the metadata its meta field holds", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = new Database();
+  consumer.database.meta = { id: "database.postgres.main", name: "main", type: "database", subtype: "postgres" };
+  consumer.database.location = "main.internal";
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).database, {
+    meta: { id: "database.postgres.main", name: "main", type: "database", subtype: "postgres" },
+    location: "main.internal",
+    port: 5432,
+  });
+});
+
+test("a hand-built reference whose meta field holds only a name takes its type and subtype from its class's @Entity", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).database, {
+    meta: { type: "database", subtype: "postgres", name: "main" },
+    location: "main.internal",
+    port: 5432,
+  });
+});
+
+test("a hand-built reference's disabled and dependencies come from its meta field", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+  consumer.database.meta = { name: "main", disabled: true, dependsOn: ["app.setup"] };
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).database, {
+    meta: { type: "database", subtype: "postgres", name: "main" },
+    disabled: true,
+    depends_on: ["app.setup"],
+    location: "main.internal",
+    port: 5432,
+  });
+});
+
+test("a hand-built reference with two label fields takes its subtype and name from them and its type from @Entity", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+  consumer.subtyped = new SubtypedDatabase();
+  consumer.subtyped.kind = "postgres";
+  consumer.subtyped.title = "replica";
+  consumer.subtyped.location = "replica.internal";
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).subtyped, {
+    meta: { type: "database", subtype: "postgres", name: "replica" },
+    location: "replica.internal",
+  });
+});
+
+test("a hand-built reference with one label field takes its name from it and its type from @Entity", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+  consumer.store = new Store();
+  consumer.store.name = "assets";
+  consumer.store.location = "assets.internal";
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).store, {
+    meta: { type: "store", name: "assets" },
+    location: "assets.internal",
+  });
+});
+
+test("a hand-built reference of a class with no @Entity takes its subtype and name from its two label fields alone", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+  consumer.undeclared = new UndeclaredStore();
+  consumer.undeclared.kind = "s3";
+  consumer.undeclared.title = "assets";
+  consumer.undeclared.location = "assets.internal";
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).undeclared, {
+    meta: { subtype: "s3", name: "assets" },
+    location: "assets.internal",
+  });
+});
+
+test("a hand-built list and map of references are written with each element's metadata", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+  consumer.databases = [database("main", "main.internal"), database("replica", "replica.internal")];
+  consumer.byRole = { standby: database("replica", "replica.internal") };
+
+  const record = recordOf(consumer, referenceClasses);
+
+  assert.deepEqual(record.databases, [
+    { meta: { type: "database", subtype: "postgres", name: "main" }, location: "main.internal", port: 5432 },
+    { meta: { type: "database", subtype: "postgres", name: "replica" }, location: "replica.internal", port: 5432 },
+  ]);
+  assert.deepEqual(record.by_role, {
+    standby: { meta: { type: "database", subtype: "postgres", name: "replica" }, location: "replica.internal", port: 5432 },
+  });
+});
+
+test("a hand-built reference with no name is written with no name rather than refused", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = new Database();
+  consumer.database.location = "main.internal";
+
+  assert.deepEqual(recordOf(consumer, referenceClasses).database, {
+    meta: { type: "database", subtype: "postgres" },
+    location: "main.internal",
+    port: 5432,
+  });
+});
+
+test("a hand-built entity holding a reference serialises to JSON for the engine", () => {
+  const consumer = new Consumer();
+  consumer.meta = { name: "web" };
+  consumer.database = database("main", "main.internal");
+
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(recordBytes(consumer, referenceClasses))), {
+    meta: { type: "app", name: "web" },
+    database: { meta: { type: "database", subtype: "postgres", name: "main" }, location: "main.internal", port: 5432 },
+    databases: [],
+    by_role: {},
+  });
+});

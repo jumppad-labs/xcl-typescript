@@ -9,7 +9,7 @@ export type { LevelLogger, ToLoggerOptions } from "./events.js";
 /** Events: the `Event` class, the `EventDataLevel` levels, and `toLogger`, which sends events to a logger of your own. */
 export * as events from "./events.js";
 export { Any, Attribute, Block, Blocks, Computed, Func, Int, Label, NamedBlocks } from "./decorators.js";
-export type { ClassDecorator, EntityClass, FieldDecorator, FieldOptions, FuncOptions, MethodDecorator, TypeSpec } from "./decorators.js";
+export type { ClassDecorator, ClassThunk, EntityClass, FieldDecorator, FieldOptions, FuncOptions, MethodDecorator, TypeSpec } from "./decorators.js";
 export { Entity, Meta } from "./entity.js";
 export { Sensitive } from "./sensitive.js";
 export type { SensitiveFunction, SensitiveOptions } from "./sensitive.js";

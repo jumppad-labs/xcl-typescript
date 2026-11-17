@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { Any, Attribute, Block, Blocks, Computed, Int, Label, NamedBlocks, type EntityClass, type TypeSpec } from "../../src/decorators.js";
+import { Any, Attribute, Block, Blocks, Computed, Func, Int, Label, NamedBlocks, type EntityClass, type TypeSpec } from "../../src/decorators.js";
 import { Entity, Meta } from "../../src/entity.js";
 import { SchemaError } from "../../src/errors.js";
 import { GitHubRegistry, LocalRegistry } from "../../src/registry.js";
@@ -2749,6 +2749,1141 @@ test("the refusal of a thunk that throws keeps what it threw as the cause", () =
     (error: unknown) => {
       assert.ok(error instanceof SchemaError);
       assert.equal(error.cause, thrown);
+      return true;
+    },
+  );
+});
+
+// Object values
+
+test("an object attribute is an object of its class's fields, with no block kind", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint!: Endpoint;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "default_endpoint", type: { object: [{ name: "port", type: "number", format: "int" }] } }],
+  });
+});
+
+test("a list of objects is a list of an object of the class's fields", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Endpoint]) endpoints!: Endpoint[];
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "endpoints", type: { list: { object: [{ name: "port", type: "number", format: "int" }] } } }],
+  });
+});
+
+test("a map of objects is a map of an object of the class's fields", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute({ map: () => Endpoint }) routes!: Record<string, Endpoint>;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "routes", type: { map: { object: [{ name: "port", type: "number", format: "int" }] } } }],
+  });
+});
+
+test("a list of objects initialized to an empty array is optional with no default", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Endpoint]) endpoints: Endpoint[] = [];
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "endpoints", type: { list: { object: [{ name: "port", type: "number", format: "int" }] } }, optional: true }],
+  });
+});
+
+test("a map of objects initialized to an empty object is optional with no default", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute({ map: () => Endpoint }) routes: Record<string, Endpoint> = {};
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "routes", type: { map: { object: [{ name: "port", type: "number", format: "int" }] } }, optional: true }],
+  });
+});
+
+test("an optional object attribute with no initializer is optional and nullable", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint, { optional: true }) defaultEndpoint?: Endpoint;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "default_endpoint", type: { object: [{ name: "port", type: "number", format: "int" }] }, optional: true, nullable: true }],
+  });
+});
+
+test("an object's class holds every field form, each keeping its meaning", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+    @Attribute(Boolean) tls = false;
+    @Attribute(String, { optional: true }) path?: string;
+    @Sensitive(String, { optional: true }) token?: Sensitive<string>;
+    @Computed(String) address?: string;
+    @Attribute([String]) tags: string[] = [];
+    @Attribute({ map: String }) headers: Record<string, string> = {};
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint!: Endpoint;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "default_endpoint",
+        type: {
+          object: [
+            { name: "port", type: "number", format: "int" },
+            { name: "tls", type: "bool", optional: true, default: false },
+            { name: "path", type: "string", optional: true, nullable: true },
+            { name: "token", type: "string", optional: true, sensitive: true },
+            { name: "address", type: "string", computed: true, nullable: true },
+            { name: "tags", type: { list: "string" }, optional: true },
+            { name: "headers", type: { map: "string" }, optional: true },
+          ],
+        },
+      },
+    ],
+  });
+});
+
+test("an object holding an object describes both levels", () => {
+  class Probe {
+    @Attribute(String) path!: string;
+  }
+
+  class Health {
+    @Attribute(Int) interval = 10;
+    @Attribute(() => Probe) probe!: Probe;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Health) health!: Health;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "health",
+        type: {
+          object: [
+            { name: "interval", type: "number", format: "int", optional: true, default: 10 },
+            { name: "probe", type: { object: [{ name: "path", type: "string" }] } },
+          ],
+        },
+      },
+    ],
+  });
+});
+
+test("an object holding a list and a map of objects describes each element", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  class Service {
+    @Attribute([() => Endpoint]) endpoints: Endpoint[] = [];
+    @Attribute({ map: () => Endpoint }) routes: Record<string, Endpoint> = {};
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Service) service!: Service;
+  }
+
+  const endpoint = { object: [{ name: "port", type: "number", format: "int" }] };
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "service",
+        type: {
+          object: [
+            { name: "endpoints", type: { list: endpoint }, optional: true },
+            { name: "routes", type: { map: endpoint }, optional: true },
+          ],
+        },
+      },
+    ],
+  });
+});
+
+test("a block's element may hold an object attribute", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  class Health {
+    @Attribute(() => Endpoint) endpoint!: Endpoint;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Block(() => Health) health!: Health;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "health",
+        kind: "block",
+        type: { object: [{ name: "endpoint", type: { object: [{ name: "port", type: "number", format: "int" }] } }] },
+      },
+    ],
+  });
+});
+
+test("an object's field names are written in snake_case", () => {
+  class Endpoint {
+    @Attribute(Int) listenPort!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint!: Endpoint;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "default_endpoint", type: { object: [{ name: "listen_port", type: "number", format: "int" }] } }],
+  });
+});
+
+test("an object attribute initialized with an instance is optional with the instance's fields as its default", () => {
+  class Endpoint {
+    @Attribute(Int) listenPort = 80;
+    @Attribute(Boolean) tls = true;
+    @Attribute(String, { optional: true }) path?: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint = new Endpoint();
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "default_endpoint",
+        type: {
+          object: [
+            { name: "listen_port", type: "number", format: "int", optional: true, default: 80 },
+            { name: "tls", type: "bool", optional: true, default: true },
+            { name: "path", type: "string", optional: true, nullable: true },
+          ],
+        },
+        optional: true,
+        default: { listen_port: 80, tls: true },
+      },
+    ],
+  });
+});
+
+test("a list of objects initialized with instances has their fields as its default", () => {
+  class Endpoint {
+    @Attribute(Int) port = 80;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Endpoint]) endpoints = [new Endpoint()];
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "endpoints",
+        type: { list: { object: [{ name: "port", type: "number", format: "int", optional: true, default: 80 }] } },
+        optional: true,
+        default: [{ port: 80 }],
+      },
+    ],
+  });
+});
+
+test("a computed object is computed and nullable, never optional", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Computed(() => Endpoint) assigned?: Endpoint;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "assigned", type: { object: [{ name: "port", type: "number", format: "int" }] }, computed: true, nullable: true }],
+  });
+});
+
+test("an object attribute's thunk may name a class declared after it", () => {
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint!: Endpoint;
+  }
+
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "default_endpoint", type: { object: [{ name: "port", type: "number", format: "int" }] } }],
+  });
+});
+
+test("one class may be used by two sibling object attributes", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) primary!: Endpoint;
+    @Attribute(() => Endpoint) secondary!: Endpoint;
+  }
+
+  const endpoint = { object: [{ name: "port", type: "number", format: "int" }] };
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      { name: "primary", type: endpoint },
+      { name: "secondary", type: endpoint },
+    ],
+  });
+});
+
+test("a sensitive object is refused", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Sensitive(() => Endpoint) endpoint!: Sensitive<Endpoint>;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(
+        error.message,
+        "field Broken.endpoint: a sensitive value of this type cannot be held by the engine; sensitive values may be String, Number, Int, Boolean, [String] or { map: String }",
+      );
+      return true;
+    },
+  );
+});
+
+test("a sensitive list of objects is refused", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Sensitive([() => Endpoint]) endpoints!: Sensitive<Endpoint[]>;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(
+        error.message,
+        "field Broken.endpoints: a sensitive value of this type cannot be held by the engine; sensitive values may be String, Number, Int, Boolean, [String] or { map: String }",
+      );
+      return true;
+    },
+  );
+});
+
+test("an object's class holding itself is refused", () => {
+  class Node {
+    @Attribute(() => Node, { optional: true }) next?: Node;
+  }
+
+  @Entity("list")
+  class Holder {
+    @Meta() meta!: Meta;
+    @Attribute(() => Node) head!: Node;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Holder),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Node.next: Node contains itself, which configuration cannot write");
+      return true;
+    },
+  );
+});
+
+test("an object's class holding itself in a list is refused", () => {
+  class Node {
+    @Attribute([() => Node]) children: Node[] = [];
+  }
+
+  @Entity("tree")
+  class Holder {
+    @Meta() meta!: Meta;
+    @Attribute(() => Node) root!: Node;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Holder),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Node.children: Node contains itself, which configuration cannot write");
+      return true;
+    },
+  );
+});
+
+test("an object's class holding itself in a map is refused", () => {
+  class Node {
+    @Attribute({ map: () => Node }) children: Record<string, Node> = {};
+  }
+
+  @Entity("tree")
+  class Holder {
+    @Meta() meta!: Meta;
+    @Attribute(() => Node) root!: Node;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Holder),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Node.children: Node contains itself, which configuration cannot write");
+      return true;
+    },
+  );
+});
+
+test("an entity class holding itself as an object attribute is refused", () => {
+  @Entity("tree")
+  class Tree {
+    @Meta() meta!: Meta;
+    @Attribute(() => Tree, { optional: true }) child?: Tree;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Tree),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Tree.child: Tree contains itself, which configuration cannot write");
+      return true;
+    },
+  );
+});
+
+test("a block holding its own class as an object attribute is refused", () => {
+  class Node {
+    @Attribute(() => Node, { optional: true }) copy?: Node;
+  }
+
+  @Entity("list")
+  class Holder {
+    @Meta() meta!: Meta;
+    @Block(() => Node) head!: Node;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Holder),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Node.copy: Node contains itself, which configuration cannot write");
+      return true;
+    },
+  );
+});
+
+test("an object attribute initialized with a plain object is refused", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint = { port: 80 } as Endpoint;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Broken.defaultEndpoint: its initializer disagrees with its decorator");
+      return true;
+    },
+  );
+});
+
+test("an object attribute initialized with an instance of another class is refused", () => {
+  class Endpoint {
+    @Attribute(Int) port = 80;
+  }
+
+  class Other {
+    @Attribute(Int) port = 80;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) defaultEndpoint = new Other() as Endpoint;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Broken.defaultEndpoint: its initializer disagrees with its decorator");
+      return true;
+    },
+  );
+});
+
+test("a list of objects initialized with a plain object element is refused", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute([() => Endpoint]) endpoints = [{ port: 80 } as Endpoint];
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Broken.endpoints: its initializer disagrees with its decorator");
+      return true;
+    },
+  );
+});
+
+test("an object attribute's thunk that returns no class is refused", () => {
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(() => undefined as unknown as EntityClass) endpoint?: object;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Broken.endpoint: its type must be given as a function returning a class, such as () => Endpoint");
+      return true;
+    },
+  );
+});
+
+test("an object attribute's thunk that throws is refused, keeping what it threw as the cause", () => {
+  const thrown = new ReferenceError("Endpoint is not defined");
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(() => {
+      throw thrown;
+    })
+    endpoint?: object;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Broken.endpoint: its type must be given as a function returning a class, such as () => Endpoint");
+      assert.equal(error.cause, thrown);
+      return true;
+    },
+  );
+});
+
+test("a class given as an attribute's type in place of a thunk is refused", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(Endpoint as unknown as TypeSpec) endpoint!: Endpoint;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Broken.endpoint: its type must be given as a function returning a class, such as () => Endpoint");
+      return true;
+    },
+  );
+});
+
+test("an object's class requiring a constructor argument is refused", () => {
+  class Endpoint {
+    constructor(readonly port: number) {}
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint as unknown as EntityClass) endpoint!: Endpoint;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "Endpoint cannot be constructed with no arguments; an entity class takes no constructor arguments");
+      return true;
+    },
+  );
+});
+
+test("a disagreeing initializer on an object's field is refused, naming the object's class", () => {
+  class Endpoint {
+    @Attribute(Int) port = "80" as unknown as number;
+  }
+
+  @Entity("app")
+  class Broken {
+    @Meta() meta!: Meta;
+    @Attribute(() => Endpoint) endpoint!: Endpoint;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(Broken),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field Endpoint.port: its initializer disagrees with its decorator");
+      return true;
+    },
+  );
+});
+
+test("a class thunk as a function's parameter type is refused at registration", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  class Functions {
+    @Func([() => Endpoint], String)
+    describe(endpoint: Endpoint): string {
+      return String(endpoint.port);
+    }
+  }
+
+  assert.throws(
+    () => new LocalRegistry().registerFunctions(new Functions()),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "function describe, parameter arg0: the class Endpoint cannot cross to configuration; use String, Boolean, Number, Int, [T] or { map: T }");
+      return true;
+    },
+  );
+});
+
+test("a class thunk within a function's list parameter is refused at registration, naming the class", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  class Functions {
+    @Func([String, [() => Endpoint]], String)
+    describe(name: string, endpoints: Endpoint[]): string {
+      return `${name}: ${endpoints.length}`;
+    }
+  }
+
+  assert.throws(
+    () => new LocalRegistry().registerFunctions(new Functions()),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "function describe, parameter arg1: the class Endpoint cannot cross to configuration; use String, Boolean, Number, Int, [T] or { map: T }");
+      return true;
+    },
+  );
+});
+
+test("a class thunk as a function's result type is refused at registration", () => {
+  class Endpoint {
+    @Attribute(Int) port!: number;
+  }
+
+  class Functions {
+    @Func([Int], () => Endpoint)
+    endpoint(port: number): Endpoint {
+      const endpoint = new Endpoint();
+      endpoint.port = port;
+      return endpoint;
+    }
+  }
+
+  assert.throws(
+    () => new LocalRegistry().registerFunctions(new Functions()),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "function endpoint, result: the class Endpoint cannot cross to configuration; use String, Boolean, Number, Int, [T] or { map: T }");
+      return true;
+    },
+  );
+});
+
+// Entity values: references to blocks
+
+test("an attribute typed by a class with a meta field is an entity of the class's fields, leaving the meta field out", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location!: string;
+    @Attribute(Int) port = 5432;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database!: Postgres;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [
+      {
+        name: "database",
+        type: {
+          entity: [
+            { name: "location", type: "string" },
+            { name: "port", type: "number", format: "int", optional: true, default: 5432 },
+          ],
+        },
+      },
+    ],
+  });
+});
+
+test("an attribute typed by a class with only a label field is an entity of the class's fields, leaving the label out", () => {
+  class Postgres {
+    @Label() name!: string;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database!: Postgres;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "database", type: { entity: [{ name: "location", type: "string" }] } }],
+  });
+});
+
+test("an attribute typed by a subtyped class with two label fields and a meta field is an entity leaving all three out", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Label() kind!: string;
+    @Label() title!: string;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database!: Postgres;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "database", type: { entity: [{ name: "location", type: "string" }] } }],
+  });
+});
+
+test("an attribute typed by an @Entity class with neither a label nor a meta field is an object value", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database!: Postgres;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "database", type: { object: [{ name: "location", type: "string" }] } }],
+  });
+});
+
+test("a list of references is a list of an entity of the class's fields", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Postgres]) databases!: Postgres[];
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "databases", type: { list: { entity: [{ name: "location", type: "string" }] } } }],
+  });
+});
+
+test("a map of references is a map of an entity of the class's fields", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute({ map: () => Postgres }) databases!: Record<string, Postgres>;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "databases", type: { map: { entity: [{ name: "location", type: "string" }] } } }],
+  });
+});
+
+test("a list of references initialized to an empty array is optional with no default", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Postgres]) databases: Postgres[] = [];
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "databases", type: { list: { entity: [{ name: "location", type: "string" }] } }, optional: true }],
+  });
+});
+
+test("a map of references initialized to an empty object is optional with no default", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute({ map: () => Postgres }) databases: Record<string, Postgres> = {};
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "databases", type: { map: { entity: [{ name: "location", type: "string" }] } }, optional: true }],
+  });
+});
+
+test("an optional reference with no initializer is optional and nullable", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres, { optional: true }) database?: Postgres;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "database", type: { entity: [{ name: "location", type: "string" }] }, optional: true, nullable: true }],
+  });
+});
+
+test("an object value's class may declare a field named disabled, as only an entity holds it", () => {
+  class Toggle {
+    @Attribute(Boolean) disabled!: boolean;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Toggle) toggle!: Toggle;
+  }
+
+  assert.deepEqual(registrationOf(App).schema, {
+    schema_version: 1,
+    type: "app",
+    fields: [{ name: "toggle", type: { object: [{ name: "disabled", type: "bool" }] } }],
+  });
+});
+
+test("an entity value's class declaring an attribute named disabled is refused", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(Boolean) disabled!: boolean;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database!: Postgres;
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, 'field Postgres.disabled: "disabled" is held by every block and cannot be declared; read it from the @Meta field');
+      return true;
+    },
+  );
+});
+
+test("an entity value's class declaring dependsOn is refused as depends_on", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute([String]) dependsOn!: string[];
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Postgres]) databases: Postgres[] = [];
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, 'field Postgres.dependsOn: "depends_on" is held by every block and cannot be declared; read it from the @Meta field');
+      return true;
+    },
+  );
+});
+
+test("a label-only entity value's class declaring an attribute named meta is refused", () => {
+  class Postgres {
+    @Label() name!: string;
+    @Attribute(String) meta!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute({ map: () => Postgres }) databases: Record<string, Postgres> = {};
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, 'field Postgres.meta: "meta" is held by every block and cannot be declared; read it from the @Meta field');
+      return true;
+    },
+  );
+});
+
+test("a reference initialized with an instance is refused, as a reference has no default", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location = "db.internal";
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database = new Postgres();
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field App.database: a reference has no default; leave it uninitialised or mark it { optional: true }");
+      return true;
+    },
+  );
+});
+
+test("a list of references initialized with an instance is refused, as a reference has no default", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location = "db.internal";
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute([() => Postgres]) databases = [new Postgres()];
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field App.databases: a reference has no default; leave it uninitialised or mark it { optional: true }");
+      return true;
+    },
+  );
+});
+
+test("a map of references initialized with an entry is refused, as a reference has no default", () => {
+  @Entity("database", "postgres")
+  class Postgres {
+    @Meta() meta!: Meta;
+    @Attribute(String) location = "db.internal";
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute({ map: () => Postgres }) databases = { main: new Postgres() };
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field App.databases: a reference has no default; leave it uninitialised or mark it { optional: true }");
+      return true;
+    },
+  );
+});
+
+test("a label-only reference initialized with an instance with no fields set is refused, as a reference has no default", () => {
+  class Postgres {
+    @Label() name!: string;
+  }
+
+  @Entity("app")
+  class App {
+    @Meta() meta!: Meta;
+    @Attribute(() => Postgres) database = new Postgres();
+  }
+
+  assert.throws(
+    () => new LocalRegistry().register(App),
+    (error: unknown) => {
+      assert.ok(error instanceof SchemaError);
+      assert.equal(error.message, "field App.database: a reference has no default; leave it uninitialised or mark it { optional: true }");
       return true;
     },
   );

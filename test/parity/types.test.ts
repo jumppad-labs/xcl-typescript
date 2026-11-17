@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { LocalRegistry, type EntityClass } from "../../src/index.js";
 import { skipReason } from "../helpers/engine.js";
-import { parityFixturesDirectory } from "./run.js";
+import { fixtureMissing, parityFixturesDirectory } from "./run.js";
 import { FIXTURES } from "./types.js";
 
 function missingFixtures(): string | false {
@@ -68,4 +68,8 @@ test("the encode classes derive the fixture's types.json", { skip: needsFixtures
 
 test("the unsupported_block classes derive the fixture's types.json", { skip: needsFixtures }, () => {
   assert.deepEqual(derived("unsupported_block"), documents("unsupported_block"));
+});
+
+test("the object_values classes derive the fixture's types.json", { skip: needsFixtures || fixtureMissing("object_values") }, () => {
+  assert.deepEqual(derived("object_values"), documents("object_values"));
 });
