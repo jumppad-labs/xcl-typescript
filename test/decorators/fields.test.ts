@@ -9,33 +9,51 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { Any, entityNameOf, fieldsOf, Int, type FieldSpec } from "../../src/decorators.js";
+import { Any, entityNameOf, fieldsOf, Int, isClassThunk, isListSpec, isMapSpec, type FieldSpec, type TypeSpec } from "../../src/decorators.js";
 import {
   App,
   BaseResource,
   ChildResource,
   ConstructedTwice,
   DeclaredLater,
+  Endpoint,
   ForwardReference,
   GrandchildResource,
   Health,
   Listener,
+  ObjectDeclaredLater,
+  ObjectHolder,
   OptionalFlags,
   OverridingResource,
   Postgres,
+  Route,
   TypeSpecs,
   Volume,
 } from "./entities.js";
 
 const compileMode = import.meta.url.includes("decorators-legacy") ? "legacy" : "standard";
 
-/** The fields with each block thunk replaced by the class it returns, so tables compare by value. */
+/** A type with each class thunk, within lists and maps too, replaced by the class it returns. */
+function typeResolved(spec: TypeSpec): unknown {
+  if (isListSpec(spec)) {
+    return [typeResolved(spec[0])];
+  }
+  if (isMapSpec(spec)) {
+    return { map: typeResolved(spec.map) };
+  }
+  return isClassThunk(spec) ? spec() : spec;
+}
+
+/** The fields with each block thunk and class thunk replaced by the class it returns, so tables compare by value. */
 function withBlocksResolved(fields: FieldSpec[]): object[] {
   return fields.map((field) => {
-    if (field.block === undefined) {
-      return field;
+    if (field.block !== undefined) {
+      return { ...field, block: field.block() };
     }
-    return { ...field, block: field.block() };
+    if (field.type !== undefined) {
+      return { ...field, type: typeResolved(field.type) };
+    }
+    return field;
   });
 }
 
@@ -167,6 +185,46 @@ describe(`entity decorators under ${compileMode} decorators`, () => {
       { property: "many", kind: "blocks", block: DeclaredLater },
       { property: "named", kind: "namedBlocks", block: DeclaredLater },
     ]);
+  });
+
+  test("Endpoint, an object value's class, records its fields", () => {
+    new Endpoint();
+
+    assert.deepEqual(fieldsOf(Endpoint), [
+      { property: "port", kind: "attribute", type: Int, optional: false },
+      { property: "tls", kind: "attribute", type: Boolean, optional: false },
+      { property: "path", kind: "attribute", type: String, optional: true },
+    ]);
+  });
+
+  test("Route, an object value's class holding an object value, records the class thunk", () => {
+    new Route();
+
+    assert.deepEqual(withBlocksResolved(fieldsOf(Route)), [
+      { property: "host", kind: "attribute", type: String, optional: false },
+      { property: "endpoint", kind: "attribute", type: Endpoint, optional: false },
+    ]);
+  });
+
+  test("every class-valued type a field can have is recorded as written", () => {
+    new ObjectHolder();
+
+    assert.deepEqual(withBlocksResolved(fieldsOf(ObjectHolder)), [
+      { property: "defaultEndpoint", kind: "attribute", type: Endpoint, optional: false },
+      { property: "endpoints", kind: "attribute", type: [Endpoint], optional: false },
+      { property: "routes", kind: "attribute", type: { map: Endpoint }, optional: false },
+      { property: "route", kind: "attribute", type: Route, optional: true },
+      { property: "assigned", kind: "computed", type: Endpoint },
+      { property: "later", kind: "attribute", type: ObjectDeclaredLater, optional: true },
+    ]);
+  });
+
+  test("a class thunk is recorded as the function itself, not the class it returns", () => {
+    new ObjectHolder();
+
+    const type = fieldNamed(fieldsOf(ObjectHolder), "defaultEndpoint").type;
+    assert.ok(isClassThunk(type));
+    assert.notEqual(type, Endpoint);
   });
 
   test("constructing an instance twice leaves the table the same", () => {

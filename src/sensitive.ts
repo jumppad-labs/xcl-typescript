@@ -6,7 +6,8 @@
 
 import { inspect } from "node:util";
 
-import { fieldDecorator, type FieldDecorator, type TypeSpec } from "./decorators.js";
+import { fieldDecorator, type ClassThunk, type FieldDecorator, type TypeSpec } from "./decorators.js";
+import type { SchemaError } from "./errors.js";
 
 const MARKER = "(sensitive)";
 
@@ -90,7 +91,9 @@ export interface SensitiveFunction {
    * The decorator itself never throws. Registering the class throws
    * {@link SchemaError} when `type` is not one the engine can hold as a
    * sensitive value (`String`, `Number`, `Int`, `Boolean`, `[String]` or
-   * `{ map: String }`), or when the field's initializer is not a `Sensitive` value.
+   * `{ map: String }`), or when the field's initializer is not a `Sensitive`
+   * value. A {@link ClassThunk} is refused: mark the object's own fields
+   * sensitive instead.
    *
    * @param type The attribute's type.
    * @param options Whether the attribute can be left out of configuration.

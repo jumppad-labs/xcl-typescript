@@ -79,6 +79,20 @@ export function parityFixturesDirectory(): string {
   return join(resolve(ROOT, process.env.XCL_SRC || "../xcl"), "bindings", "libxcl", "testdata", "parity");
 }
 
+/**
+ * Why a fixture's tests cannot run, or false when they can: the xcl checkout
+ * lacks the fixture's directory. A binding suite checks xcl out at its pinned
+ * tag, which holds a newly added fixture only once xcl releases it, so this is
+ * a skip even in a strict run; every other missing thing still fails there.
+ */
+export function fixtureMissing(name: string): string | false {
+  const directory = join(parityFixturesDirectory(), name);
+  if (!existsSync(directory)) {
+    return `the parity fixture ${name} is not at ${directory}; it arrives with the xcl release that adds it`;
+  }
+  return false;
+}
+
 /** A fixture directory, read. */
 interface Fixture {
   dir: string;

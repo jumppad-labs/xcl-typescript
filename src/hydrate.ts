@@ -6,7 +6,7 @@
  * that crosses the boundary calls them and none converts by hand.
  */
 
-import { fieldsOf, type EntityClass, type FieldSpec } from "./decorators.js";
+import { entityNameOf, fieldsOf, isClassThunk, isEntityClass, isListSpec, isMapSpec, type EntityClass, type FieldSpec, type TypeSpec } from "./decorators.js";
 import { NotEncodableError, NotRegisteredError, SchemaError, TypeMismatchError } from "./errors.js";
 import type { Registration } from "./schema.js";
 import { isSensitive, Sensitive } from "./sensitive.js";
@@ -279,9 +279,45 @@ function hydrateValue(field: FieldSpec, value: unknown): unknown {
       return Array.isArray(value) ? value.map((element) => hydrateBlock(field, element)) : value;
     case "namedBlocks":
       return isObject(value) ? Object.fromEntries(Object.entries(value).map(([name, element]) => [name, hydrateBlock(field, element)])) : value;
+    case "attribute":
+    case "computed":
+      return field.type !== undefined && holdsClass(field.type) ? hydrateTyped(field.type, value) : value;
     default:
       return value;
   }
+}
+
+/** Whether a type is, or holds as a list's or map's element, a class thunk. */
+function holdsClass(spec: TypeSpec): boolean {
+  if (isListSpec(spec)) {
+    return holdsClass(spec[0]);
+  }
+  if (isMapSpec(spec)) {
+    return holdsClass(spec.map);
+  }
+  return isClassThunk(spec);
+}
+
+/**
+ * A JSON value as its type, the mirror of `recordTyped`: an object value
+ * becomes an instance of its class, and lists and maps are walked element by
+ * element. A value that does not have its type's shape is left as it is, as a
+ * block's is.
+ */
+function hydrateTyped(spec: TypeSpec, value: unknown): unknown {
+  if (isListSpec(spec)) {
+    return Array.isArray(value) ? value.map((element) => hydrateTyped(spec[0], element)) : value;
+  }
+  if (isMapSpec(spec)) {
+    return isObject(value) ? Object.fromEntries(Object.entries(value).map(([key, element]) => [key, hydrateTyped(spec.map, element)])) : value;
+  }
+  if (isClassThunk(spec) && isObject(value)) {
+    // an entity value takes its labels and metadata as the entity itself does;
+    // only the root's JSON is remembered, which already holds this value's
+    const ctor = spec();
+    return hydrateInto(ctor, value, isEntityClass(ctor));
+  }
+  return value;
 }
 
 function hydrateBlock(field: FieldSpec, value: unknown): unknown {
@@ -315,28 +351,55 @@ export function recordOf(entity: unknown, classes: ClassMap): JsonObject {
   }
 
   const ctor = entity.constructor as EntityClass;
-  const { type, subtype } = classes.namesOf(ctor);
+  const names = classes.namesOf(ctor);
   const source = sourceOf(entity);
-  const fields = fieldsOf(ctor);
+  return Object.assign(entityEnvelope(entity, source, names), recordInto(entity, source, true));
+}
+
+/**
+ * The part of an entity's JSON every block holds: `meta`, with its type,
+ * subtype and name, and `disabled` and `depends_on` when set, from the
+ * instance's `@Meta` field or else from the JSON it was hydrated from. The
+ * root entity takes its type and subtype from its registration, `names`, and
+ * must have a name. An entity value held in an attribute need not be of a
+ * registered class: it takes them from its metadata, else from its class's
+ * `@Entity`, and its subtype from its first label when it has two.
+ */
+function entityEnvelope(entity: object, source: JsonObject | undefined, names?: { type: string; subtype: string }): JsonObject {
+  const fields = fieldsOf(entity.constructor);
   const target = entity as JsonObject;
 
   const metaField = fields.find((field) => field.kind === "meta");
   const held = metaField === undefined ? undefined : target[metaField.property];
   const meta: JsonObject = isObject(held) ? metaRecord(held as unknown as Meta) : isObject(source?.meta) ? { ...source.meta } : {};
-  meta.type = type;
-  delete meta.subtype;
-  if (subtype) {
-    meta.subtype = subtype;
-  }
 
   // one label field holds the name, two the subtype and the name
   const labels = fields.filter((field) => field.kind === "label");
+  if (names !== undefined) {
+    meta.type = names.type;
+    delete meta.subtype;
+    if (names.subtype) {
+      meta.subtype = names.subtype;
+    }
+  } else {
+    const declared = entityNameOf(entity.constructor);
+    if (!meta.type && declared?.type) {
+      meta.type = declared.type;
+    }
+    const subtype = labels.length === 2 ? target[(labels[0] as FieldSpec).property] : undefined;
+    if (subtype) {
+      meta.subtype = subtype;
+    } else if (!meta.subtype && declared?.subtype) {
+      meta.subtype = declared.subtype;
+    }
+  }
+
   const name = labels.length > 0 ? target[(labels[labels.length - 1] as FieldSpec).property] : meta.name;
   delete meta.name;
   if (name) {
     meta.name = name;
-  } else if (labels.length > 0 || metaField !== undefined) {
-    throw notEncodable(`a ${dotted({ type, subtype })} entity`, "it has no name; set its label field or meta.name");
+  } else if (names !== undefined && (labels.length > 0 || metaField !== undefined)) {
+    throw notEncodable(`a ${dotted(names)} entity`, "it has no name; set its label field or meta.name");
   }
 
   const record: JsonObject = { meta };
@@ -356,7 +419,7 @@ export function recordOf(entity: unknown, classes: ClassMap): JsonObject {
       record.depends_on = [...source.depends_on];
     }
   }
-  return Object.assign(record, recordInto(entity, source, true));
+  return record;
 }
 
 /** The entity's JSON from `recordOf`, serialised for the engine. */
@@ -428,6 +491,34 @@ function recordValue(field: FieldSpec, value: unknown, source: unknown): unknown
   if (field.kind === "namedBlocks" && isObject(value)) {
     const entries = isObject(source) ? source : {};
     return Object.fromEntries(Object.entries(value).map(([name, element]) => [name, recordValue({ ...field, kind: "block" }, element, entries[name])]));
+  }
+  if ((field.kind === "attribute" || field.kind === "computed") && field.type !== undefined) {
+    return recordTyped(field.type, value, source);
+  }
+  return value;
+}
+
+/**
+ * A value as the JSON of its type, walking lists and maps element by element:
+ * an instance of an object value's class is written as its fields, from the
+ * engine's JSON wherever a field still holds what hydration set. A value of any
+ * other type is written as it is. @internal
+ */
+export function recordTyped(spec: TypeSpec, value: unknown, source?: unknown): unknown {
+  if (isListSpec(spec) && Array.isArray(value)) {
+    const elements = Array.isArray(source) ? source : [];
+    return value.map((element: unknown, index) => recordTyped(spec[0], element, elements[index]));
+  }
+  if (isMapSpec(spec) && isObject(value) && !isClassInstance(value)) {
+    const entries = isObject(source) ? source : {};
+    return Object.fromEntries(Object.entries(value).map(([key, element]) => [key, recordTyped(spec.map, element, entries[key])]));
+  }
+  if (isClassThunk(spec) && isClassInstance(value)) {
+    const held = isObject(source) ? source : undefined;
+    if (isEntityClass(value.constructor)) {
+      return Object.assign(entityEnvelope(value, held), recordInto(value, held, true));
+    }
+    return recordInto(value, held, false);
   }
   return value;
 }

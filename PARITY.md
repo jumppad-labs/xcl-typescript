@@ -63,12 +63,17 @@ The encoding options are all off by default: `IncludeComputed()` is `includeComp
 | A label field, `xcl:"name,label"` | `@Label()` |
 | A `Meta` field, `types.Meta` | `@Meta()` |
 | A plain struct with neither, a singleton | a class with neither, a singleton |
+| A struct-typed attribute, `Endpoint \`xcl:"default_endpoint"\`` (Python `xcl.field(block=False)`) | `@Attribute(() => Endpoint)` |
+| A slice or map of a struct, `[]Endpoint` / `map[string]Endpoint` (Python `list[...]`/`dict[str, ...]` with `block=False`) | `@Attribute([() => Endpoint])` / `@Attribute({ map: () => Endpoint })` |
+| A field typed by an entity struct, one with `Meta`, set from a reference (Python a `block=False` dataclass with `meta` or a label field) | `@Attribute(() => Postgres)` or `@Attribute([() => Postgres])`, where `Postgres` declares `@Meta()` or `@Label()` |
 | `local.RegisterFunction(name, fn)` | `@Func(params, result, { name })` and `local.registerFunctions(instance)` |
 | `local.RegisterExternalPlugin(path)` / `(program, args...)` | `local.registerExternalPlugin(path)` / `([program, ...args])` |
 | `local.RegisterPluginDirectory(dir)` | `local.registerPluginDirectory(dir)` |
 | `registry.NewGitHub(options...)` | `new GitHubRegistry({ cacheDir, trustedKeys, token, apiUrl })` |
 | `github.RegisterPlugin(repo, version)` | `github.registerPlugin(repo, version)` |
 | `registry.Register[T](github, type, subtype)` | `github.register(App)` |
+
+A class-valued type is given as a function returning the class, `() => Endpoint`, where Go and Python name the type in the field's annotation. TypeScript has no runtime type annotations, and the function lets a field name a class declared further down the file, as `@Block(() => T)` does. Which form the engine receives follows one rule in TypeScript and Python: a class or dataclass declaring a label or metadata field is an entity value, and any other is an object. As in Go, a reference is checked by its shape, not its block type, when the configuration is applied.
 
 ## Values
 

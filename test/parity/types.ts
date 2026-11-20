@@ -136,6 +136,34 @@ export class EncodeService {
   @Label() name = "";
 }
 
+// -- object_values ------------------------------------------------------------
+
+/** An object value's class: required, defaulted, optional and sensitive fields. */
+export class ObjectValuesEndpoint {
+  @Attribute(Int) port!: number;
+  @Attribute(Boolean) tls = false;
+  @Attribute(String, { optional: true }) path?: string;
+  @Sensitive(String, { optional: true }) token?: Sensitive<string>;
+}
+
+@Entity("database", "postgres")
+export class ObjectValuesPostgres {
+  @Meta() meta!: Meta;
+  @Attribute(String) location!: string;
+  @Attribute(Int) port = 5432;
+}
+
+@Entity("app")
+export class ObjectValuesApp {
+  @Meta() meta!: Meta;
+  @Attribute(String) image!: string;
+  @Attribute(() => ObjectValuesEndpoint) defaultEndpoint!: ObjectValuesEndpoint;
+  @Attribute([() => ObjectValuesEndpoint]) endpoints: ObjectValuesEndpoint[] = [];
+  @Attribute({ map: () => ObjectValuesEndpoint }) routes: Record<string, ObjectValuesEndpoint> = {};
+  @Attribute(() => ObjectValuesPostgres, { optional: true }) database?: ObjectValuesPostgres;
+  @Attribute([() => ObjectValuesPostgres]) databases: ObjectValuesPostgres[] = [];
+}
+
 /** A fixture directory's name to its classes, in the order of its `types.json`. */
 export const FIXTURES: Readonly<Record<string, readonly EntityClass[]>> = {
   basic_types: [BasicTypesService],
@@ -148,6 +176,7 @@ export const FIXTURES: Readonly<Record<string, readonly EntityClass[]>> = {
   unsupported_block: [UnsupportedBlockApp],
   singletons: [SingletonsRunner, SingletonsAgent],
   encode: [EncodeStore, EncodeService],
+  object_values: [ObjectValuesPostgres, ObjectValuesApp],
 };
 
 function handBuiltStore(): EncodeStore {
@@ -159,6 +188,51 @@ function handBuiltStore(): EncodeStore {
   return store;
 }
 
+function endpoint(port: number, tls = false, path?: string): ObjectValuesEndpoint {
+  const built = new ObjectValuesEndpoint();
+  built.port = port;
+  built.tls = tls;
+  if (path !== undefined) {
+    built.path = path;
+  }
+  return built;
+}
+
+function postgres(name: string, location: string, port = 5432): ObjectValuesPostgres {
+  const built = new ObjectValuesPostgres();
+  built.meta = { name, type: "database", subtype: "postgres" };
+  built.location = location;
+  built.port = port;
+  return built;
+}
+
+function handBuiltEdge(): ObjectValuesApp {
+  const app = new ObjectValuesApp();
+  app.meta = { name: "edge" };
+  app.image = "envoy";
+  app.defaultEndpoint = endpoint(443, true);
+  app.routes = { public: endpoint(443, true, "/") };
+  // main.xcl sets neither list, so they are unset rather than the class's empty default
+  const unset = app as { endpoints?: unknown; databases?: unknown };
+  unset.endpoints = undefined;
+  unset.databases = undefined;
+  return app;
+}
+
+function handBuiltWeb(): ObjectValuesApp {
+  const app = new ObjectValuesApp();
+  // the references main.xcl writes, which show references swaps in
+  app.meta = { name: "web", references: { database: "database.postgres.main", databases: "[database.postgres.a, database.postgres.b]" } };
+  app.image = "nginx";
+  app.defaultEndpoint = endpoint(80, true);
+  app.defaultEndpoint.token = new Sensitive("s3cret");
+  app.endpoints = [endpoint(8080), endpoint(8443, true, "/api")];
+  app.routes = { public: endpoint(80), admin: endpoint(9000, true) };
+  app.database = postgres("main", "eu-west-1");
+  app.databases = [postgres("a", "eu-west-2", 5433), postgres("b", "us-east-1")];
+  return app;
+}
+
 /**
  * A fixture directory's name to the entities its `hand_built.json` lists, by
  * address, each built by hand with the values the fixture's `main.xcl` gives
@@ -167,6 +241,11 @@ function handBuiltStore(): EncodeStore {
 export const HAND_BUILT: Readonly<Record<string, Readonly<Record<string, () => object>>>> = {
   encode: {
     "store.postgres.main": handBuiltStore,
+  },
+  object_values: {
+    "app.edge": handBuiltEdge,
+    "database.postgres.main": () => postgres("main", "eu-west-1"),
+    "app.web": handBuiltWeb,
   },
 };
 

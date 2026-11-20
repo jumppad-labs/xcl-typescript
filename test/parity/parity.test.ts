@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { missingEngine, missingPlugin, PLUGIN_DIRECTORY, pluginPath, RECORDING_PLUGIN, ROOT, skipReason, testDirectory } from "../helpers/engine.js";
-import { parityFixturesDirectory } from "./run.js";
+import { fixtureMissing, parityFixturesDirectory } from "./run.js";
 
 const PARITY_PROGRAM = `parity${process.platform === "win32" ? ".exe" : ""}`;
 const RUN_NODE = fileURLToPath(new URL("./run.js", import.meta.url));
@@ -296,6 +296,12 @@ test("parity unsupported_block", { skip: needsPrograms }, async (t) => {
   assertSameRecord("unsupported_block", go, node);
 });
 
+test("parity object_values", { skip: needsPrograms || fixtureMissing("object_values") }, async (t) => {
+  const { go, node } = await runParity(t, "object_values");
+
+  assertSameRecord("object_values", go, node);
+});
+
 // -- the encode section is not vacuous ----------------------------------------
 
 test("the encode record holds sixteen texts for the looked-up, saved and hand-built forms", { skip: needsPrograms }, async (t) => {
@@ -353,4 +359,20 @@ test("parity encode with typed lookups", { skip: needsPrograms }, async (t) => {
   const { go, node } = await runParity(t, "encode", ["--typed-lookups"]);
 
   assertSameRecord("encode", go, node);
+});
+
+test("parity object_values with typed lookups", { skip: needsPrograms || fixtureMissing("object_values") }, async (t) => {
+  const { go, node } = await runParity(t, "object_values", ["--typed-lookups"]);
+
+  assertSameRecord("object_values", go, node);
+});
+
+test("the object_values record holds hand-built texts for each listed address", { skip: needsPrograms || fixtureMissing("object_values") }, async (t) => {
+  const { node } = await runParity(t, "object_values");
+
+  const encode = node.encode as Record<string, Record<string, Record<string, unknown>>>;
+  for (const address of ["app.edge", "database.postgres.main", "app.web"]) {
+    assert.equal(Object.keys(encode[address]?.hand_built ?? {}).length, 16, `hand-built texts of ${address}`);
+  }
+  assert.match(String(encode["app.web"]?.hand_built?.references), /databases = \[database\.postgres\.a, database\.postgres\.b\]/);
 });

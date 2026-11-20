@@ -80,6 +80,33 @@ export class DeclaredLater {
   @Attribute(String) value!: string;
 }
 
+/** An object value's class: a required, a defaulted and an optional field. */
+export class Endpoint {
+  @Attribute(Int) port!: number;
+  @Attribute(Boolean) tls = false;
+  @Attribute(String, { optional: true }) path?: string;
+}
+
+/** An object value's class holding another object value. */
+export class Route {
+  @Attribute(String) host!: string;
+  @Attribute(() => Endpoint) endpoint!: Endpoint;
+}
+
+/** A class declaring every form of class-valued type a field can have. */
+export class ObjectHolder {
+  @Attribute(() => Endpoint) defaultEndpoint!: Endpoint;
+  @Attribute([() => Endpoint]) endpoints: Endpoint[] = [];
+  @Attribute({ map: () => Endpoint }) routes: Record<string, Endpoint> = {};
+  @Attribute(() => Route, { optional: true }) route?: Route;
+  @Computed(() => Endpoint) assigned?: Endpoint;
+  @Attribute(() => ObjectDeclaredLater, { optional: true }) later?: ObjectDeclaredLater;
+}
+
+export class ObjectDeclaredLater {
+  @Attribute(String) value!: string;
+}
+
 /** Constructed only by the test that constructs a class twice. */
 export class ConstructedTwice {
   @Attribute(String) first = "one";

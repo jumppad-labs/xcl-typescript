@@ -9,9 +9,23 @@
  * field.
  */
 
-import { Any, entityNameOf, fieldsOf, Int, type EntityClass, type FieldSpec, type FunctionSpec, type TypeSpec } from "./decorators.js";
+import {
+  Any,
+  entityNameOf,
+  fieldsOf,
+  Int,
+  isClassThunk,
+  isEntityClass,
+  isListSpec as isList,
+  isMapSpec as isMap,
+  type ClassThunk,
+  type EntityClass,
+  type FieldSpec,
+  type FunctionSpec,
+  type TypeSpec,
+} from "./decorators.js";
 import { SchemaError } from "./errors.js";
-import { roundTrips, toSnake } from "./hydrate.js";
+import { recordTyped, roundTrips, toSnake } from "./hydrate.js";
 import { isSensitive } from "./sensitive.js";
 
 /** A schema v1 document, in the form the engine's reader expects. */
@@ -31,14 +45,6 @@ const RESERVED = new Set(["meta", "disabled", "depends_on"]);
 
 function nameOf(ctor: EntityClass): string {
   return ctor.name || "the class";
-}
-
-function isList(spec: TypeSpec | undefined): spec is readonly [TypeSpec] {
-  return Array.isArray(spec) && spec.length === 1;
-}
-
-function isMap(spec: TypeSpec | undefined): spec is { readonly map: TypeSpec } {
-  return typeof spec === "object" && spec !== null && !Array.isArray(spec) && "map" in spec;
 }
 
 /** Constructs a class with no arguments, as hydration will, refusing one that cannot be. */
@@ -93,7 +99,11 @@ function schemaFor(ctor: EntityClass, probe: object, type: string, subtype: stri
   return document;
 }
 
-function fieldDocuments(ctor: EntityClass, probe: object, top: boolean, visiting: Set<EntityClass>): FieldDocument[] {
+// asEntity is true for a block type's own fields and for an entity value's:
+// labels and metadata are left out, being the block's identity, and the names
+// every block holds are refused. A nested block's or object value's fields
+// take neither rule.
+function fieldDocuments(ctor: EntityClass, probe: object, asEntity: boolean, visiting: Set<EntityClass>): FieldDocument[] {
   const documents: FieldDocument[] = [];
   for (const field of fieldsOf(ctor)) {
     const where = `${nameOf(ctor)}.${field.property}`;
@@ -101,7 +111,7 @@ function fieldDocuments(ctor: EntityClass, probe: object, top: boolean, visiting
       throw new SchemaError(`field ${where}: the name does not survive conversion to configuration and back; use a camelCase name`);
     }
     if (field.kind === "meta") {
-      if (!top) {
+      if (!asEntity) {
         throw new SchemaError(`field ${where}: a nested block has no metadata; @Meta belongs on an entity class`);
       }
       continue;
@@ -110,7 +120,7 @@ function fieldDocuments(ctor: EntityClass, probe: object, top: boolean, visiting
       continue;
     }
     const name = toSnake(field.property);
-    if (top && RESERVED.has(name)) {
+    if (asEntity && RESERVED.has(name)) {
       throw new SchemaError(`field ${where}: "${name}" is held by every block and cannot be declared; read it from the @Meta field`);
     }
     documents.push(fieldDocument(field, name, where, (probe as Record<string, unknown>)[field.property], visiting));
@@ -122,18 +132,18 @@ function fieldDocument(field: FieldSpec, name: string, where: string, initial: u
   const document: FieldDocument = { name };
   switch (field.kind) {
     case "attribute":
-      return attributeDocument(document, field, where, initial);
+      return attributeDocument(document, field, where, initial, visiting);
     case "sensitive":
-      return sensitiveDocument(document, field, where, initial);
+      return sensitiveDocument(document, field, where, initial, visiting);
     case "computed":
-      return computedDocument(document, field, where, initial);
+      return computedDocument(document, field, where, initial, visiting);
     default:
       return blockDocument(document, field, where, initial, visiting);
   }
 }
 
-function attributeDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown): FieldDocument {
-  const shape = shapeOf(field.type, where);
+function attributeDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown, visiting: Set<EntityClass>): FieldDocument {
+  const shape = shapeOf(field.type, where, visiting);
   document.type = shape.type;
   if (shape.format) {
     document.format = shape.format;
@@ -145,16 +155,20 @@ function attributeDocument(document: FieldDocument, field: FieldSpec, where: str
     }
     return document;
   }
+  if (shape.entity && !(isEmptyCollection(initial) && (Array.isArray(initial) || Object.getPrototypeOf(initial) === Object.prototype))) {
+    throw new SchemaError(`field ${where}: a reference has no default; leave it uninitialised or mark it { optional: true }`);
+  }
   assertAgrees(field.type as TypeSpec, initial, where);
   document.optional = true;
-  if (!isEmptyCollection(initial)) {
-    document.default = jsonValue(initial, where);
+  // an instance of an object value's class is a default even with no fields set
+  if (isClassThunk(field.type) || !isEmptyCollection(initial)) {
+    document.default = jsonValue(recordTyped(field.type as TypeSpec, initial), where);
   }
   return document;
 }
 
-function sensitiveDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown): FieldDocument {
-  const shape = shapeOf(field.type, where);
+function sensitiveDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown, visiting: Set<EntityClass>): FieldDocument {
+  const shape = shapeOf(field.type, where, visiting);
   if (!canBeSensitive(field.type as TypeSpec)) {
     throw new SchemaError(`field ${where}: a sensitive value of this type cannot be held by the engine; sensitive values may be String, Number, Int, Boolean, [String] or { map: String }`);
   }
@@ -183,8 +197,8 @@ function sensitiveDocument(document: FieldDocument, field: FieldSpec, where: str
   return document;
 }
 
-function computedDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown): FieldDocument {
-  const shape = shapeOf(field.type, where);
+function computedDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown, visiting: Set<EntityClass>): FieldDocument {
+  const shape = shapeOf(field.type, where, visiting);
   if (initial !== undefined && initial !== null) {
     assertAgrees(field.type as TypeSpec, initial, where);
   }
@@ -197,19 +211,35 @@ function computedDocument(document: FieldDocument, field: FieldSpec, where: stri
   return document;
 }
 
-function blockDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown, visiting: Set<EntityClass>): FieldDocument {
+const BLOCK_THUNK = "its block must be given as a function returning a class, such as () => Health";
+const TYPE_THUNK = "its type must be given as a function returning a class, such as () => Endpoint";
+const NO_FORM = "this type has no configuration form; use String, Number, Boolean, Int, Any, [T] or { map: T }";
+
+/**
+ * The class a block's or an object value's thunk returns, refusing a thunk that
+ * returns no class, and a class that would contain itself, since configuration
+ * writes a block or a value out whole. A thunk that throws is refused with
+ * `refusal`, and one that returns something other than a class with
+ * `notAClass`.
+ */
+function classOf(thunk: ClassThunk, where: string, visiting: Set<EntityClass>, refusal: string, notAClass = refusal): EntityClass {
   let element: EntityClass;
   try {
-    element = (field.block as () => EntityClass)();
+    element = thunk();
   } catch (cause) {
-    throw new SchemaError(`field ${where}: its block must be given as a function returning a class, such as () => Health`, { cause });
+    throw new SchemaError(`field ${where}: ${refusal}`, { cause });
   }
   if (typeof element !== "function") {
-    throw new SchemaError(`field ${where}: its block must be given as a function returning a class, such as () => Health`);
+    throw new SchemaError(`field ${where}: ${notAClass}`);
   }
   if (visiting.has(element)) {
     throw new SchemaError(`field ${where}: ${nameOf(element)} contains itself, which configuration cannot write`);
   }
+  return element;
+}
+
+function blockDocument(document: FieldDocument, field: FieldSpec, where: string, initial: unknown, visiting: Set<EntityClass>): FieldDocument {
+  const element = classOf(field.block as ClassThunk, where, visiting, BLOCK_THUNK);
   assertBlockInitial(field, element, initial, where);
 
   const nested = new Set(visiting).add(element);
@@ -251,12 +281,12 @@ function assertBlockInitial(field: FieldSpec, element: EntityClass, initial: unk
 /** The `plugins.FunctionSignature` document of a function offered to configuration. */
 export function signatureOf(spec: FunctionSpec, where: string): Record<string, unknown> {
   return {
-    params: spec.params.map((param, index) => ({ name: `arg${index}`, type: functionType(param, where) })),
-    return: functionType(spec.result, where),
+    params: spec.params.map((param, index) => ({ name: `arg${index}`, type: functionType(param, where, `parameter arg${index}`) })),
+    return: functionType(spec.result, where, "result"),
   };
 }
 
-function functionType(spec: TypeSpec, where: string): unknown {
+function functionType(spec: TypeSpec, where: string, slot: string): unknown {
   if (spec === String) {
     return "string";
   }
@@ -267,20 +297,39 @@ function functionType(spec: TypeSpec, where: string): unknown {
     return "number";
   }
   if (isList(spec)) {
-    return ["list", functionType(spec[0], where)];
+    return ["list", functionType(spec[0], where, slot)];
   }
   if (isMap(spec)) {
-    return ["map", functionType(spec.map, where)];
+    return ["map", functionType(spec.map, where, slot)];
+  }
+  if (isClassThunk(spec)) {
+    // functions take only scalar, list and map types, so an object value has no form there
+    throw new SchemaError(`${where}, ${slot}: the class ${thunkName(spec)} cannot cross to configuration; use String, Boolean, Number, Int, [T] or { map: T }`);
   }
   throw new SchemaError(`${where}: this type cannot cross to configuration; use String, Boolean, Number, Int, [T] or { map: T }`);
+}
+
+/** The name of the class a thunk returns, for a refusal, or of the thunk itself when it returns none. */
+function thunkName(thunk: ClassThunk): string {
+  try {
+    const element: unknown = thunk();
+    if (typeof element === "function" && element.name) {
+      return element.name;
+    }
+  } catch {
+    // named by the thunk below
+  }
+  return thunk.name || "the class";
 }
 
 interface Shape {
   type: unknown;
   format?: string;
+  /** The type is, or holds as a list's or map's element, an entity value. */
+  entity?: boolean;
 }
 
-function shapeOf(spec: TypeSpec | undefined, where: string): Shape {
+function shapeOf(spec: TypeSpec | undefined, where: string, visiting: Set<EntityClass>): Shape {
   if (spec === String) {
     return { type: "string" };
   }
@@ -297,14 +346,36 @@ function shapeOf(spec: TypeSpec | undefined, where: string): Shape {
     return { type: "any" };
   }
   if (isList(spec)) {
-    const element = shapeOf(spec[0], where);
-    return element.format ? { type: { list: element.type }, format: element.format } : { type: { list: element.type } };
+    const element = shapeOf(spec[0], where, visiting);
+    return { ...element, type: { list: element.type } };
   }
   if (isMap(spec)) {
-    const element = shapeOf(spec.map, where);
-    return element.format ? { type: { map: element.type }, format: element.format } : { type: { map: element.type } };
+    const element = shapeOf(spec.map, where, visiting);
+    return { ...element, type: { map: element.type } };
   }
-  throw new SchemaError(`field ${where}: this type has no configuration form; use String, Number, Boolean, Int, Any, [T] or { map: T }`);
+  if (isClassThunk(spec)) {
+    return objectShape(spec, where, visiting);
+  }
+  throw new SchemaError(`field ${where}: ${NO_FORM}`);
+}
+
+/**
+ * The shape of a class-valued type. A class declaring a label or metadata
+ * field is an entity value, as a reference to a block gives it, its fields
+ * described as a block type's are; any other class is an object value, its
+ * fields described as a nested block's are. A constructor given in place of a
+ * thunk, such as `Date`, that returns no class when called has no
+ * configuration form.
+ */
+function objectShape(thunk: ClassThunk, where: string, visiting: Set<EntityClass>): Shape {
+  const element = classOf(thunk, where, visiting, TYPE_THUNK, Object.hasOwn(thunk, "prototype") ? NO_FORM : TYPE_THUNK);
+  const nested = new Set(visiting).add(element);
+  // constructed first, so a standard decorator has recorded the class's fields
+  const probe = probeOf(element);
+  if (isEntityClass(element)) {
+    return { type: { entity: fieldDocuments(element, probe, true, nested) }, entity: true };
+  }
+  return { type: { object: fieldDocuments(element, probe, false, nested) } };
 }
 
 function canBeSensitive(spec: TypeSpec): boolean {
@@ -345,6 +416,10 @@ function agrees(spec: TypeSpec, value: unknown): boolean {
   }
   if (isMap(spec)) {
     return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((element) => agrees(spec.map, element));
+  }
+  if (isClassThunk(spec)) {
+    // the thunk was resolved when the field's shape was described
+    return value instanceof spec();
   }
   return false;
 }
