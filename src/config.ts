@@ -133,7 +133,10 @@ let clientForNext: Client | undefined;
  * Constructing one does no I/O. The configuration is created in the engine on
  * its first call, which starts the engine on first use, checks its version and
  * sends every registered type and function, so a registration the engine
- * refuses rejects that first call. Call `setup()` to do that work earlier.
+ * refuses rejects that first call, with {@link TypeNameClashError},
+ * {@link TypeFormError}, {@link InvalidTypeError},
+ * {@link FunctionNameClashError} or {@link InvalidFunctionError} as
+ * {@link Config.setup} describes. Call `setup()` to do that work earlier.
  * Close it with `await using` or `close()`.
  */
 export class Config {
@@ -151,6 +154,10 @@ export class Config {
    * Throws for options that cannot work together: `InvalidArgumentError` for
    * `statePath` with `stateStore`, and `SchemaError` for one class registered
    * as two block types.
+   *
+   * @param options The registries, state, masks, event handling and variables the configuration is created with.
+   * @throws {@link InvalidArgumentError} when `options` gives both `statePath` and `stateStore`.
+   * @throws {@link SchemaError} when one class is registered as two block types across the registries.
    */
   constructor(options: ConfigOptions = {}) {
     if (options.statePath !== undefined && options.stateStore !== undefined) {
@@ -187,41 +194,164 @@ export class Config {
    * engine or an engine of the wrong version; or to pay the engine's start-up
    * cost before latency-sensitive work. Calling it again does nothing more.
    * Python's asyncio API calls this `open()`.
+   *
+   * @returns A Promise that resolves to this configuration once it exists in the engine.
+   * @throws {@link InvalidArgumentError} when the configuration is closed, or the engine refuses an option, such as a negative `eventBufferSize`.
+   * @throws {@link EngineNotFoundError} when the engine cannot be found on first use.
+   * @throws {@link EngineVersionError} when the engine's version differs from the one the package was built for.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link TypeNameClashError} when two registries, or a registry and a builtin, declare the same type.
+   * @throws {@link TypeFormError} when a type is declared both with and without a subtype.
+   * @throws {@link InvalidTypeError} when a registered type has a field configuration cannot be decoded into.
+   * @throws {@link FunctionNameClashError} when a function name is offered twice, or is a builtin's.
+   * @throws {@link InvalidFunctionError} when a registered function has a signature the engine cannot use.
+   * @throws {@link MaskNotReversibleError} when `stateMask` cannot recover the values it masks.
    */
   async setup(): Promise<this> {
     await this.#ensure();
     return this;
   }
 
-  /** Checks the configuration at `paths` is valid, calling no provider. Rejects with `ConfigError`. */
+  /**
+   * Checks the configuration at `paths` is valid, calling no provider.
+   *
+   * @param paths The files or directories the configuration is read from; at least one.
+   * @param options Takes `signal`, which stops the validation only before it starts.
+   * @throws {@link ConfigError} when the configuration is invalid; `problems` lists each problem.
+   * @throws {@link InvalidArgumentError} when `paths` is empty, or the configuration is closed.
+   * @throws {@link OperationInProgressError} when another operation is running on this configuration.
+   * @throws {@link CancelledError} when `signal` is aborted before the validation starts.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link PluginNotFoundError} when a GitHub plugin's release does not exist or has no build for this platform.
+   * @throws {@link PluginVerificationError} when a GitHub plugin's release fails its signature or checksum check.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async validate(paths: Paths, options: OperationOptions = {}): Promise<void> {
     await this.#run("startValidate", () => ({ paths: pathsOf(paths) }), options.signal);
   }
 
-  /** Applies the configuration at `paths`: creates, updates and destroys entities, then saves state. */
+  /**
+   * Applies the configuration at `paths`: creates, updates and destroys entities, then saves state.
+   *
+   * @param paths The files or directories the configuration is read from; at least one.
+   * @param options Takes `signal`, which stops the apply and saves the progress made so far.
+   * @throws {@link ConfigError} when the configuration is invalid; `problems` lists each problem.
+   * @throws {@link EmptyConfigurationError} when `paths` hold no configuration; nothing is destroyed or saved.
+   * @throws {@link ProviderError} when a provider fails during a lifecycle step; the progress made so far is saved.
+   * @throws {@link InvalidArgumentError} when `paths` is empty, or the configuration is closed.
+   * @throws {@link OperationInProgressError} when another operation is running on this configuration.
+   * @throws {@link CancelledError} when `signal` is aborted; its `cause` is the signal's `reason`.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link PluginNotFoundError} when a GitHub plugin's release does not exist or has no build for this platform.
+   * @throws {@link PluginVerificationError} when a GitHub plugin's release fails its signature or checksum check.
+   * @throws {@link UnregisteredTypeError} when a saved record names a type this configuration does not declare.
+   * @throws {@link InvalidSavedDataError} when a saved record cannot be read.
+   * @throws {@link UnrecoverableError} when a masked value in the saved state cannot be turned back into its real value.
+   * @throws {@link InternalError} when the `stateStore` given in the options fails.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async apply(paths: Paths, options: OperationOptions = {}): Promise<void> {
     await this.#run("startApply", () => ({ paths: pathsOf(paths) }), options.signal);
   }
 
-  /** What applying the configuration at `paths` would do, without doing it. */
+  /**
+   * What applying the configuration at `paths` would do, without doing it.
+   *
+   * @param paths The files or directories the configuration is read from; at least one.
+   * @param options Takes `signal`, which stops the diff, and `revealSensitive`, which shows sensitive values.
+   * @returns A Promise that resolves to the {@link Diff}: what an apply would create, update, replace or delete.
+   * @throws {@link ConfigError} when the configuration is invalid; `problems` lists each problem.
+   * @throws {@link EmptyConfigurationError} when `paths` hold no configuration.
+   * @throws {@link ProviderError} when a provider fails while reading or comparing an entity.
+   * @throws {@link InvalidArgumentError} when `paths` is empty, or the configuration is closed.
+   * @throws {@link OperationInProgressError} when another operation is running on this configuration.
+   * @throws {@link CancelledError} when `signal` is aborted; its `cause` is the signal's `reason`.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link PluginNotFoundError} when a GitHub plugin's release does not exist or has no build for this platform.
+   * @throws {@link PluginVerificationError} when a GitHub plugin's release fails its signature or checksum check.
+   * @throws {@link UnregisteredTypeError} when a saved record names a type this configuration does not declare.
+   * @throws {@link InvalidSavedDataError} when a saved record cannot be read.
+   * @throws {@link UnrecoverableError} when a masked value in the saved state cannot be turned back into its real value.
+   * @throws {@link InternalError} when the `stateStore` given in the options fails.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async diff(paths: Paths, options: DiffOptions = {}): Promise<Diff> {
     const result = await this.#run("startDiff", () => ({ paths: pathsOf(paths), revealSensitive: options.revealSensitive ?? false }), options.signal);
     return result ?? Diff.fromJSON(new Uint8Array());
   }
 
-  /** Reads the saved state into the configuration, so lookups answer from it. */
+  /**
+   * Reads the saved state into the configuration, so lookups answer from it.
+   *
+   * @param options Takes `signal`, which stops the load only before the state is read.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when another operation is running on this configuration.
+   * @throws {@link CancelledError} when `signal` is aborted before the state is read.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link PluginNotFoundError} when a GitHub plugin's release does not exist or has no build for this platform.
+   * @throws {@link PluginVerificationError} when a GitHub plugin's release fails its signature or checksum check.
+   * @throws {@link UnregisteredTypeError} when a saved record names a type this configuration does not declare.
+   * @throws {@link InvalidSavedDataError} when a saved record cannot be read.
+   * @throws {@link UnrecoverableError} when a masked value in the saved state cannot be turned back into its real value.
+   * @throws {@link InternalError} when the `stateStore` given in the options fails.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async load(options: OperationOptions = {}): Promise<void> {
     await this.#run("startLoad", () => ({}), options.signal);
   }
 
-  /** Destroys every entity in the saved state, children first, saving after each. */
+  /**
+   * Destroys every entity in the saved state, children first, saving after each.
+   *
+   * @param options Takes `signal`, which stops the destroy; what was not reached stays in the state.
+   * @throws {@link ProviderError} when a provider fails to destroy an entity; it stays in the state for the next destroy to retry.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when another operation is running on this configuration.
+   * @throws {@link CancelledError} when `signal` is aborted; its `cause` is the signal's `reason`.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link PluginNotFoundError} when a GitHub plugin's release does not exist or has no build for this platform.
+   * @throws {@link PluginVerificationError} when a GitHub plugin's release fails its signature or checksum check.
+   * @throws {@link UnregisteredTypeError} when a saved record names a type this configuration does not declare.
+   * @throws {@link InvalidSavedDataError} when a saved record cannot be read.
+   * @throws {@link UnrecoverableError} when a masked value in the saved state cannot be turned back into its real value.
+   * @throws {@link InternalError} when the `stateStore` given in the options fails.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async destroy(options: OperationOptions = {}): Promise<void> {
     await this.#run("startDestroy", () => ({}), options.signal);
   }
 
-  /** The entity at `address` as an instance of `type`, a class registered on this configuration. */
+  /**
+   * The entity at `address` as an instance of `type`, a class registered on this configuration.
+   *
+   * @param type The registered class to return the entity as.
+   * @param address The entity's address, such as `"app.web"`.
+   * @returns A Promise that resolves to the entity as an instance of `type`.
+   * @throws {@link NotFoundError} when no entity exists at `address`.
+   * @throws {@link NotRegisteredError} when `type` is not registered on this configuration.
+   * @throws {@link TypeMismatchError} when the entity at `address` is not of `type`.
+   * @throws {@link InvalidArgumentError} when `address` is empty, or the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   find<T extends object>(type: EntityClass<T>, address: string): Promise<T>;
-  /** The entity at `address`, as a generic `Entity`. Rejects with `NotFoundError` when there is none. */
+  /**
+   * The entity at `address`, as a generic `Entity`.
+   *
+   * @param address The entity's address, such as `"app.web"`.
+   * @returns A Promise that resolves to the entity as a generic {@link Entity}.
+   * @throws {@link NotFoundError} when no entity exists at `address`.
+   * @throws {@link InvalidArgumentError} when `address` is empty, or the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   find(address: string): Promise<Entity>;
   async find(first: EntityClass | string, address?: string): Promise<object> {
     const type = typeof first === "function" ? first : undefined;
@@ -233,9 +363,34 @@ export class Config {
     return this.#result(response.entity, type);
   }
 
-  /** Every entity of the type the segments name, as instances of `type`. */
+  /**
+   * Every entity of the type the segments name, as instances of `type`.
+   *
+   * @param type The registered class to return each entity as.
+   * @param path The segments naming the type: the type, then its subtype where it takes one.
+   * @returns A Promise that resolves to every matching entity as an instance of `type`; empty when none matches.
+   * @throws {@link NotRegisteredError} when `type` is not registered on this configuration.
+   * @throws {@link UnknownTypeError} when the leading segment names no type.
+   * @throws {@link NotTypeableError} when the segments span more than one type, such as a type given without its subtype.
+   * @throws {@link TypeMismatchError} when an entity found is not of `type`.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   findByType<T extends object>(type: EntityClass<T>, ...path: string[]): Promise<T[]>;
-  /** Every entity of the type the segments name, such as `"database", "postgres"`, as generic entities. */
+  /**
+   * Every entity of the type the segments name, such as `"database", "postgres"`, as generic entities.
+   *
+   * @param path The segments naming the type: the type, then its subtype where it takes one.
+   * @returns A Promise that resolves to every matching entity as a generic {@link Entity}; empty when none matches.
+   * @throws {@link UnknownTypeError} when the leading segment names no type.
+   * @throws {@link NotTypeableError} when the segments span more than one type, such as a type given without its subtype.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   findByType(...path: string[]): Promise<Entity[]>;
   async findByType(first: EntityClass | string, ...rest: string[]): Promise<object[]> {
     const type = typeof first === "function" ? first : undefined;
@@ -247,9 +402,38 @@ export class Config {
     return response.entities.map((entity) => this.#result(entity, type));
   }
 
-  /** The single entity of the type the segments name, as an instance of `type`. */
+  /**
+   * The single entity of the type the segments name, as an instance of `type`.
+   *
+   * @param type The registered class to return the entity as.
+   * @param path The segments naming the type: the type, then its subtype where it takes one.
+   * @returns A Promise that resolves to the one matching entity as an instance of `type`.
+   * @throws {@link NotFoundError} when no entity matches.
+   * @throws {@link NotUniqueError} when more than one entity matches; `details.count` says how many.
+   * @throws {@link NotRegisteredError} when `type` is not registered on this configuration.
+   * @throws {@link UnknownTypeError} when the leading segment names no type.
+   * @throws {@link NotTypeableError} when the segments span more than one type, such as a type given without its subtype.
+   * @throws {@link TypeMismatchError} when the entity found is not of `type`.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   findOne<T extends object>(type: EntityClass<T>, ...path: string[]): Promise<T>;
-  /** The single entity of the type the segments name. Rejects with `NotFoundError` or `NotUniqueError`. */
+  /**
+   * The single entity of the type the segments name.
+   *
+   * @param path The segments naming the type: the type, then its subtype where it takes one.
+   * @returns A Promise that resolves to the one matching entity as a generic {@link Entity}.
+   * @throws {@link NotFoundError} when no entity matches.
+   * @throws {@link NotUniqueError} when more than one entity matches; `details.count` says how many.
+   * @throws {@link UnknownTypeError} when the leading segment names no type.
+   * @throws {@link NotTypeableError} when the segments span more than one type, such as a type given without its subtype.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   findOne(...path: string[]): Promise<Entity>;
   async findOne(first: EntityClass | string, ...rest: string[]): Promise<object> {
     const type = typeof first === "function" ? first : undefined;
@@ -261,25 +445,59 @@ export class Config {
     return this.#result(response.entity, type);
   }
 
-  /** Every entity of `type`, a class registered on this configuration. */
+  /**
+   * Every entity of `type`, a class registered on this configuration.
+   *
+   * @param type The registered class whose entities to return.
+   * @returns A Promise that resolves to every entity of `type`; empty when there is none.
+   * @throws {@link NotRegisteredError} when `type` is not registered on this configuration.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async all<T extends object>(type: EntityClass<T>): Promise<T[]> {
     const names = this.#classes.namesOf(type);
     return this.findByType(type, ...(names.subtype ? [names.type, names.subtype] : [names.type]));
   }
 
-  /** Every entity the configuration holds: an instance of the registered class where there is one, a generic `Entity` otherwise. */
+  /**
+   * Every entity the configuration holds: an instance of the registered class where there is one, a generic `Entity` otherwise.
+   *
+   * @returns A Promise that resolves to every entity; empty before an apply or a load.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async entities(): Promise<Array<object | Entity>> {
     const response = await this.#engine().call(await this.#ensure(), "entities", {});
     return response.entities.map((entity) => hydrate(parseRecord(entity), this.#classes));
   }
 
-  /** How many entities the configuration holds. */
+  /**
+   * How many entities the configuration holds.
+   *
+   * @returns A Promise that resolves to the number of entities.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async entityCount(): Promise<number> {
     const response = await this.#engine().call(await this.#ensure(), "entities", {});
     return response.entities.length;
   }
 
-  /** The configuration's outputs as a plain object, keyed by address with the output's name in camelCase. */
+  /**
+   * The configuration's outputs as a plain object, keyed by address with the output's name in camelCase.
+   *
+   * @returns A Promise that resolves to each output's value by its key; empty when there are none.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async outputs(): Promise<Record<string, unknown>> {
     const response = await this.#engine().call(await this.#ensure(), "outputs", {});
     if (response.outputsJson.length === 0) {
@@ -293,6 +511,18 @@ export class Config {
    * An entity rendered as configuration text: a looked-up or hand-built
    * instance, or a generic entity. The engine renders it, so it is Go's text.
    * Refused while an operation runs.
+   *
+   * @param entity The entity: an instance of a registered class, or a generic {@link Entity}.
+   * @param options The four encoding choices, all off by default.
+   * @returns A Promise that resolves to the configuration text.
+   * @throws {@link NotEncodableError} when `entity` is not an entity, has no name, is a builtin, or holds a value with no configuration form.
+   * @throws {@link NotRegisteredError} when `entity`'s class is not registered on this configuration.
+   * @throws {@link UnregisteredTypeError} when the entity names a type this configuration does not declare.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
    */
   async encodeEntity(entity: unknown, options: EncodeOptions = {}): Promise<string> {
     const record = recordBytes(entity, this.#classes);
@@ -304,6 +534,17 @@ export class Config {
    * A saved record rendered as configuration text, as a state store holds it
    * and events carry it. Allowed at any time, including from an `onEvent`
    * handler while an operation runs.
+   *
+   * @param record One entity's saved JSON, as bytes or a string.
+   * @param options The four encoding choices, all off by default.
+   * @returns A Promise that resolves to the configuration text.
+   * @throws {@link InvalidSavedDataError} when `record` is not one saved entity record.
+   * @throws {@link UnregisteredTypeError} when `record` names a type this configuration does not declare.
+   * @throws {@link NotEncodableError} when the entity has no form as configuration text, such as a builtin.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link InvalidArgumentError} when `record` is empty, or the configuration is closed.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
    */
   async encodeSavedEntity(record: Uint8Array | string, options: EncodeOptions = {}): Promise<string> {
     const entity = typeof record === "string" ? new TextEncoder().encode(record) : record;
@@ -316,13 +557,38 @@ export class Config {
    * default, as Go's `xcl.PrintEntity` prints it, with the same four encoding
    * choices as `encodeEntity`. The output is plain text unless `formatter`
    * chooses another format. Refused while an operation runs.
+   *
+   * @param entity The entity: an instance of a registered class, or a generic {@link Entity}.
+   * @param options The four encoding choices, and the writer, format and theme to print with.
+   * @throws {@link NotEncodableError} when `entity` is not an entity, has no name, is a builtin, or holds a value with no configuration form.
+   * @throws {@link NotRegisteredError} when `entity`'s class is not registered on this configuration.
+   * @throws {@link UnregisteredTypeError} when the entity names a type this configuration does not declare.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
    */
   async printEntity(entity: object, options: EncodeOptions & Omit<PrintOptions, "width"> = {}): Promise<void> {
     const tokens = await this.entityTokens(entity, options);
     (options.formatter ?? plain)(options.out ?? process.stdout, options.theme ?? defaultTheme, tokens);
   }
 
-  /** An entity's configuration text as labelled text, the same text `encodeEntity` returns. Refused while an operation runs. */
+  /**
+   * An entity's configuration text as labelled text, the same text `encodeEntity` returns. Refused while an operation runs.
+   *
+   * @param entity The entity: an instance of a registered class, or a generic {@link Entity}.
+   * @param options The four encoding choices, all off by default.
+   * @returns A Promise that resolves to the text as {@link Token}s, each labelled with its kind.
+   * @throws {@link NotEncodableError} when `entity` is not an entity, has no name, is a builtin, or holds a value with no configuration form.
+   * @throws {@link NotRegisteredError} when `entity`'s class is not registered on this configuration.
+   * @throws {@link UnregisteredTypeError} when the entity names a type this configuration does not declare.
+   * @throws {@link PluginLoadError} when a registered plugin cannot be started or read.
+   * @throws {@link InvalidArgumentError} when the configuration is closed.
+   * @throws {@link OperationInProgressError} when an operation is running on this configuration.
+   * @throws {@link EngineExitedError} when the engine stops during the call.
+   * @throws {@link XclError} any error {@link Config.setup} rejects with, when this call creates the configuration in the engine.
+   */
   async entityTokens(entity: object, options: EncodeOptions = {}): Promise<Token[]> {
     const record = recordBytes(entity, this.#classes);
     const response = await this.#engine().call(await this.#ensure(), "encodeEntity", { entity: record, options: encodeOptions(options), tokens: true });
@@ -333,6 +599,8 @@ export class Config {
    * Releases the configuration in the engine. Every later call rejects with
    * `InvalidArgumentError`. Closing twice, or closing a configuration that was
    * never created in the engine, is harmless.
+   *
+   * @throws {@link InternalBindingError} when the engine refuses to release the configuration, which is a bug in this package.
    */
   async close(): Promise<void> {
     this.#closed = true;
@@ -348,7 +616,11 @@ export class Config {
     }
   }
 
-  /** Closes the configuration when an `await using` block ends. */
+  /**
+   * Closes the configuration when an `await using` block ends.
+   *
+   * @throws {@link InternalBindingError} when the engine refuses to release the configuration, which is a bug in this package.
+   */
   [Symbol.asyncDispose](): Promise<void> {
     return this.close();
   }

@@ -65,6 +65,8 @@ const NO_CONFIGURATION: object = {};
  * The level named by `XCL_LOG_LEVEL`, as Go's `prettylog.LevelFromEnv` reads
  * it: `debug`, `info`, `warn` or `error`, in any letter case. Anything else, or
  * the variable unset, gives `info`. It is read only when this is called.
+ *
+ * @returns The level named, in lower case, or `"info"`.
  */
 export function levelFromEnv(): LogLevel {
   const named = (process.env[LEVEL_ENV] ?? "").toLowerCase();
@@ -92,6 +94,10 @@ export function levelFromEnv(): LogLevel {
  * it go out in one write, and nothing waits on the stream, so a slow stream
  * cannot hold up an operation. The handler never rejects into an operation: a
  * failure to write is ignored. One handler may serve several configurations.
+ *
+ * @param options Where the lines go, the minimum level, and their format.
+ * @returns A handler for the configuration's `onEvent`. The Promise it returns for an event resolves once the event's lines are handed to the stream or logger, or the event is skipped, and never rejects.
+ * @throws {@link InvalidArgumentError} when `out` and `logger` are both given, or `level` is not `debug`, `info`, `warn` or `error`.
  */
 export function handler(options: PrettyLogOptions = {}): (event: Event) => Promise<void> {
   if (options.out !== undefined && options.logger !== undefined) {

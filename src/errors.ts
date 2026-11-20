@@ -71,6 +71,14 @@ export class XclError extends Error {
   /** The report as plain text, wrapped at 80 columns; present only on an error holding a report. */
   declare readonly report?: string;
 
+  /**
+   * An error with `message`, taking the rest from `options`. Its code is
+   * `options.code`, else the code its class is registered for, and its
+   * `problems` are found in its details and causes.
+   *
+   * @param message The message for people.
+   * @param options The code, details, causes and cause, each optional.
+   */
   constructor(message: string, options: XclErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = new.target.name;
@@ -89,6 +97,10 @@ export class XclError extends Error {
    * option asks for it. An error holding no report shows as Node shows any
    * error. An uncaught error never reaches this: Node's fatal path turns custom
    * inspection off, which is why the plain report is also in `stack`.
+   *
+   * @param _depth The nesting depth Node passes; unused.
+   * @param options Node's inspection options; only `colors` is read.
+   * @returns The error itself when it holds no report, else its stack, with the report coloured when `colors` is true.
    */
   [inspect.custom](_depth: number, options: { colors?: boolean }): unknown {
     if (this.tokens.length === 0) {
@@ -257,6 +269,12 @@ export class EngineNotFoundError extends XclError {
   /** The package expected for this platform, or an empty string for an `XCL_CORE_PATH` that does not exist. */
   readonly packageName: string;
 
+  /**
+   * An error saying the engine is missing.
+   *
+   * @param message The message for people, saying where the engine was looked for.
+   * @param packageName The package expected for this platform, put in `details.package` when not empty; by default an empty string.
+   */
   constructor(message: string, packageName = "") {
     super(message, { details: packageName ? { package: packageName } : {} });
     this.packageName = packageName;
@@ -272,6 +290,14 @@ export class EngineVersionError extends XclError {
   /** The version the engine reports. */
   readonly engine: string;
 
+  /**
+   * An error saying the engine is of the wrong version; both versions are also
+   * put in `details`.
+   *
+   * @param message The message for people.
+   * @param expected The version the package was built for.
+   * @param engine The version the engine reports.
+   */
   constructor(message: string, expected: string, engine: string) {
     super(message, { details: { expected, engine } });
     this.expected = expected;
@@ -291,6 +317,14 @@ export class EngineExitedError extends XclError {
   /** The signal that ended the engine, or null when it exited by itself. */
   readonly signal: string | null;
 
+  /**
+   * An error whose message says how the engine stopped: by a signal, with an
+   * exit status, or, with neither, by its pipe closing. Each one given is also
+   * put in `details`, as `signal` and `status`.
+   *
+   * @param exitCode The engine's exit status, or null when it has none.
+   * @param signal The signal that ended the engine, or null when none did.
+   */
   constructor(exitCode: number | null, signal: string | null) {
     const how = signal !== null ? `it was ended by signal ${signal}` : exitCode !== null ? `it exited with status ${exitCode}` : "its pipe closed";
     const details: Record<string, string> = {};
@@ -332,6 +366,12 @@ export class InvalidStyleError extends XclError {
   /** Each unknown word, with the kind and style holding it. */
   readonly words: readonly InvalidStyleWord[];
 
+  /**
+   * An error whose message names each word with its style and kind, as Go's
+   * does, and whose `details.words` lists the words separated by spaces.
+   *
+   * @param words Each unknown word, with the kind and style holding it, in order.
+   */
   constructor(words: readonly InvalidStyleWord[]) {
     super(words.map(({ kind, style, word }) => `style ${goQuote(style)} for ${goName(kind)}: unknown word ${goQuote(word)}`).join("; "), {
       details: { words: words.map(({ word }) => word).join(" ") },
@@ -356,6 +396,13 @@ export class InternalBindingError extends XclError {
   /** The status the engine answered with. */
   readonly status: number;
 
+  /**
+   * An error whose message names the method, the status and what the status
+   * means; both are also put in `details`.
+   *
+   * @param method The method that was refused.
+   * @param status The negative status the engine answered with.
+   */
   constructor(method: string, status: number) {
     super(`the engine refused ${method} with status ${status} (${STATUS_REASONS[status] ?? "unknown status"}); this is a bug in the xcl-lang package`, {
       details: { method, status: String(status) },
@@ -398,7 +445,12 @@ const BY_CODE: ReadonlyMap<string, new (message: string, options?: XclErrorOptio
   ].map((type) => [type.code, type]),
 );
 
-/** Turns an `Error` message from the engine into the error class for its code. */
+/**
+ * Turns an `Error` message from the engine into the error class for its code.
+ *
+ * @param error The engine's `Error` message; its causes are turned in the same way.
+ * @returns An instance of the class registered for the message's code, or an `XclError` keeping the code when no class is registered for it, holding the message's report when it has one.
+ */
 export function fromProto(error: ErrorMessage): XclError {
   const causes = error.causes.map(fromProto);
   const known = BY_CODE.get(error.code);

@@ -95,12 +95,21 @@ export class Diff {
     );
   }
 
-  /** How many entities the apply would create, update, replace or delete. */
+  /**
+   * How many entities the apply would create, update, replace or delete.
+   *
+   * @returns The sum of the summary's `create`, `update`, `replace` and `delete` counts.
+   */
   changed(): number {
     return this.summary.create + this.summary.update + this.summary.replace + this.summary.delete;
   }
 
-  /** The entry for `address`, or undefined when the apply would leave it alone. */
+  /**
+   * The entry for `address`, or undefined when the apply would leave it alone.
+   *
+   * @param address The entity's address.
+   * @returns What the apply would do to the entity, or undefined when it would leave it alone.
+   */
   resource(address: string): ResourceDiff | undefined {
     return this.resources.find((resource) => resource.address === address);
   }

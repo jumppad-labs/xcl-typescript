@@ -18,7 +18,13 @@ export interface Mask {
   readonly message: MessageInitShape<typeof MaskSchema>;
 }
 
-/** Encrypts sensitive values with AES-256-GCM under a 32-byte key. Reversible, so it suits state. */
+/**
+ * Encrypts sensitive values with AES-256-GCM under a 32-byte key. Reversible, so it suits state.
+ *
+ * @param key The encryption key, exactly 32 bytes.
+ * @returns The `aes256gcm` mask.
+ * @throws {@link RangeError} when `key` is not 32 bytes long.
+ */
 export function aes256gcm(key: Uint8Array): Mask {
   if (key.length !== 32) {
     throw new RangeError(`an AES-256-GCM key is 32 bytes, got ${key.length}`);
@@ -26,7 +32,13 @@ export function aes256gcm(key: Uint8Array): Mask {
   return { name: "aes256gcm", message: { kind: { case: "aes256gcmKey", value: key } } };
 }
 
-/** Replaces sensitive values with their HMAC-SHA256 under `key`. One-way, so values still compare. */
+/**
+ * Replaces sensitive values with their HMAC-SHA256 under `key`. One-way, so values still compare.
+ *
+ * @param key The HMAC key, at least one byte.
+ * @returns The `hmac_sha256` mask.
+ * @throws {@link RangeError} when `key` is empty.
+ */
 export function hmacSha256(key: Uint8Array): Mask {
   if (key.length === 0) {
     throw new RangeError("an HMAC-SHA256 key must not be empty");
@@ -34,12 +46,20 @@ export function hmacSha256(key: Uint8Array): Mask {
   return { name: "hmac_sha256", message: { kind: { case: "hmacSha256Key", value: key } } };
 }
 
-/** Replaces sensitive values with the marker `(sensitive)`. The default for events. */
+/**
+ * Replaces sensitive values with the marker `(sensitive)`. The default for events.
+ *
+ * @returns The `redact` mask.
+ */
 export function redact(): Mask {
   return { name: "redact", message: { kind: { case: "redact", value: true } } };
 }
 
-/** Leaves sensitive values out entirely. */
+/**
+ * Leaves sensitive values out entirely.
+ *
+ * @returns The `omit` mask.
+ */
 export function omit(): Mask {
   return { name: "omit", message: { kind: { case: "omit", value: true } } };
 }

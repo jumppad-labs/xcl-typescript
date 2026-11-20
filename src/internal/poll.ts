@@ -25,11 +25,23 @@ export const POLL_WAIT_MS = 1000;
  * unless a state mask is set.
  */
 export interface StateStore {
-  /** Returns the saved records. */
+  /**
+   * Returns the saved records.
+   *
+   * @returns Every saved record, or a Promise that resolves to them; empty when nothing is saved.
+   */
   load(): Uint8Array[] | Promise<Uint8Array[]>;
-  /** Saves every record of the state. */
+  /**
+   * Saves every record of the state.
+   *
+   * @param records Every record of the state, each one entity's JSON; they replace whatever was saved before.
+   */
   save(records: Uint8Array[]): void | Promise<void>;
-  /** Whether anything has been saved. */
+  /**
+   * Whether anything has been saved.
+   *
+   * @returns `true` when records have been saved, or a Promise that resolves to it.
+   */
   exists(): boolean | Promise<boolean>;
   /** Removes everything saved. */
   clear(): void | Promise<void>;

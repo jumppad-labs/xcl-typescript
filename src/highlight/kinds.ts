@@ -119,7 +119,12 @@ export interface Token {
   readonly text: string;
 }
 
-/** The category of any kind number, known or not. */
+/**
+ * The category of any kind number, known or not.
+ *
+ * @param kind A `Kind`, or a number this package does not know.
+ * @returns The kind rounded down to its block of 100, such as `Kind.Block` for `Kind.BlockType`; a category is its own.
+ */
 export function parentOf(kind: number): number {
   return Math.floor(kind / 100) * 100;
 }
@@ -148,6 +153,9 @@ function classOfName(name: string): string {
 /**
  * The HTML class of any kind number, the same in every language: a known kind's
  * own, else its known category's, else an empty string.
+ *
+ * @param kind A `Kind`, or a number this package does not know.
+ * @returns The class, such as `xcl-block-type` for `Kind.BlockType`, or an empty string for a kind whose category this package does not know.
  */
 export function cssClassOf(kind: number): string {
   const name = nameOf(kind);

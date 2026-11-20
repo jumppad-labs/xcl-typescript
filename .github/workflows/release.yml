@@ -81,6 +81,39 @@ jobs:
           echo "engine=$engine" >> "$GITHUB_OUTPUT"
           echo "engine-version=${engine#v}" >> "$GITHUB_OUTPUT"
 
+  # the package's API as reference data for xcl.dev, generated at the tag with
+  # the release's version. It runs the doc comment check too, and publish needs
+  # it, so a release whose reference cannot be generated stops before npm.
+  reference:
+    name: API reference
+    needs: settings
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.settings.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.settings.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Set the version from the tag
+        run: npm pkg set version="$VERSION"
+
+      - name: Generate the reference
+        run: node .github/scripts/api-reference.mjs --check --out "xcl-lang-$VERSION-reference.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reference
+          path: xcl-lang-*-reference.json
+          if-no-files-found: error
+
   # the nine tarballs, from the signed engine archives of the pinned xcl
   # release. Nothing unpacks an archive until the step that checks it has passed.
   assemble:
@@ -363,7 +396,7 @@ jobs:
   # platform publishes nothing
   publish:
     name: Publish to npm
-    needs: [settings, verify, verify-musl]
+    needs: [settings, verify, verify-musl, reference]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -559,10 +592,11 @@ jobs:
             grep -Fq "test.item.second two first-one" commonjs.out'
 
   # the GitHub release for the tag: the pull requests merged since the
-  # previous tag, and the engine the package bundles
+  # previous tag, and the engine the package bundles, with the reference data
+  # attached for the website to fetch
   github-release:
     name: GitHub release
-    needs: [settings, publish]
+    needs: [settings, publish, reference]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -590,3 +624,33 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --verify-tag \
             --notes "Bundles the xcl engine [$ENGINE](https://github.com/jumppad-labs/xcl/releases/tag/$ENGINE)." \
             --generate-notes "${start[@]}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: reference
+
+      # --clobber, so a re-run of this job after the asset is attached succeeds
+      - name: Attach the reference data
+        run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber xcl-lang-*-reference.json
+
+  # tell the website the release exists, once the data it fetches is attached;
+  # its reference-bump workflow moves the TypeScript pin after a build passes
+  dispatch-website:
+    name: Dispatch the website
+    needs: [settings, github-release]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.settings.outputs.tag }}
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: xcl-website
+
+      - name: Dispatch xcl-website
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: gh api repos/jumppad-labs/xcl-website/dispatches -f event_type=xcl-typescript-release -f 'client_payload[tag]='"$TAG"

@@ -6,7 +6,12 @@ import { styleFor, type Theme } from "./theme.js";
 
 /** Anything text can be written to, such as `process.stdout` or a collecting object. */
 export interface Writer {
-  /** Writes one chunk of text. */
+  /**
+   * Writes one chunk of text.
+   *
+   * @param chunk The text to write.
+   * @returns Anything; the package ignores the result.
+   */
   write(chunk: string): unknown;
 }
 
@@ -16,10 +21,20 @@ export interface Writer {
  * document, and the theme to style them with, which it may ignore. The tokens
  * hold every byte of the text, `Kind.Text` tokens included. A function of this
  * type is accepted wherever a built-in format is.
+ *
+ * @param out The writer to write the output to.
+ * @param theme The theme to style the tokens with, which a format may ignore.
+ * @param tokens Every token of the text, in order.
  */
 export type Formatter = (out: Writer, theme: Theme, tokens: readonly Token[]) => void;
 
-/** Writes the text of the tokens with nothing added, ignoring the theme, as Go's `highlight.Plain`. */
+/**
+ * Writes the text of the tokens with nothing added, ignoring the theme, as Go's `highlight.Plain`.
+ *
+ * @param out The writer to write the text to.
+ * @param theme The theme, which is ignored.
+ * @param tokens Every token of the text, in order.
+ */
 export const plain: Formatter = (out, _theme, tokens) => {
   for (const token of tokens) {
     writeText(out, token.text);
@@ -32,6 +47,10 @@ export const plain: Formatter = (out, _theme, tokens) => {
  * with a reset before every line break, so indenting or prefixing a line never
  * bleeds colour. It always writes colour: whether to use it is the caller's
  * choice, which `forStream` makes the usual way.
+ *
+ * @param out The writer to write the coloured text to.
+ * @param theme The theme giving each kind's style.
+ * @param tokens Every token of the text, in order.
  */
 export const terminal: Formatter = (out, theme, tokens) => {
   for (const token of tokens) {
@@ -57,6 +76,10 @@ export const terminal: Formatter = (out, theme, tokens) => {
  * kind's class and, when the kind belongs to a category, the category's class
  * first. The theme is ignored: a website styles the classes with its own
  * stylesheet, or one `css` generates from a theme.
+ *
+ * @param out The writer to write the markup to.
+ * @param theme The theme, which is ignored.
+ * @param tokens Every token of the text, in order.
  */
 export const html: Formatter = (out, _theme, tokens) => {
   out.write('<pre class="xcl">');
@@ -77,6 +100,10 @@ export const html: Formatter = (out, _theme, tokens) => {
  * reach, such as an email. A token the theme styles with nothing, and every
  * `Kind.Text` token, is written without a span; the block itself carries
  * `Kind.Text`'s style, when the theme gives it one.
+ *
+ * @param out The writer to write the markup to.
+ * @param theme The theme giving each kind's style.
+ * @param tokens Every token of the text, in order.
  */
 export const htmlInline: Formatter = (out, theme, tokens) => {
   const block = cssDeclarations(styleFor(theme, Kind.Text));
@@ -105,6 +132,10 @@ const SVG_BASELINE = 11;
  * box fits the longest line and every line. `Kind.Text`'s foreground colours
  * the whole image, and its background, when the theme gives one, fills it; a
  * token's own background is not drawn.
+ *
+ * @param out The writer to write the image to.
+ * @param theme The theme giving each kind's style.
+ * @param tokens Every token of the text, in order.
  */
 export const svg: Formatter = (out, theme, tokens) => {
   const lines = svgLines(tokens);

@@ -42,13 +42,37 @@ export interface FieldOptions {
 
 /** A decorator usable on a field under standard or legacy decorators. */
 export interface FieldDecorator {
+  /**
+   * The standard decorators form: records the field when an instance of its
+   * class is built.
+   *
+   * @param target Always `undefined`, since a field has no value to decorate.
+   * @param context The field's decorator context, which names the field.
+   */
   <This, Value>(target: undefined, context: ClassFieldDecoratorContext<This, Value>): void;
+  /**
+   * The `experimentalDecorators` form: records the field against the class at once.
+   *
+   * @param target The prototype of the class declaring the field.
+   * @param property The field's name.
+   */
   (target: object, property: string | symbol): void;
 }
 
 /** A decorator usable on a class under standard or legacy decorators. */
 export interface ClassDecorator {
+  /**
+   * The standard decorators form.
+   *
+   * @param target The class decorated.
+   * @param context The class's decorator context.
+   */
   <C extends abstract new (...args: never[]) => object>(target: C, context: ClassDecoratorContext<C>): void;
+  /**
+   * The `experimentalDecorators` form.
+   *
+   * @param target The class decorated.
+   */
   <C extends abstract new (...args: never[]) => object>(target: C): void;
 }
 
@@ -114,32 +138,63 @@ export function entityDecorator(type: string, subtype = ""): ClassDecorator {
   return decorate as ClassDecorator;
 }
 
-/** Declares an attribute. */
+/**
+ * Declares an attribute.
+ *
+ * @param type The attribute's type.
+ * @param options Whether the attribute can be left out of configuration.
+ * @returns A decorator recording the field as an attribute of `type`.
+ */
 export function Attribute(type: TypeSpec, options: FieldOptions = {}): FieldDecorator {
   return fieldDecorator({ kind: "attribute", type, optional: options.optional ?? false });
 }
 
-/** Declares a field set by a provider, never in configuration. */
+/**
+ * Declares a field set by a provider, never in configuration.
+ *
+ * @param type The field's type.
+ * @returns A decorator recording the field as a computed value of `type`.
+ */
 export function Computed(type: TypeSpec): FieldDecorator {
   return fieldDecorator({ kind: "computed", type });
 }
 
-/** Declares a nested block. */
+/**
+ * Declares a nested block.
+ *
+ * @param block A function returning the block's class, so a class can be named before it is defined.
+ * @param options Whether the block can be left out of configuration.
+ * @returns A decorator recording the field as one nested block of that class.
+ */
 export function Block(block: () => EntityClass, options: FieldOptions = {}): FieldDecorator {
   return fieldDecorator({ kind: "block", block, optional: options.optional ?? false });
 }
 
-/** Declares a list of blocks, in order. */
+/**
+ * Declares a list of blocks, in order.
+ *
+ * @param block A function returning the blocks' class, so a class can be named before it is defined.
+ * @returns A decorator recording the field as a list of blocks of that class.
+ */
 export function Blocks(block: () => EntityClass): FieldDecorator {
   return fieldDecorator({ kind: "blocks", block });
 }
 
-/** Declares named blocks, a record keyed by their label. */
+/**
+ * Declares named blocks, a record keyed by their label.
+ *
+ * @param block A function returning the blocks' class, so a class can be named before it is defined.
+ * @returns A decorator recording the field as a record of blocks of that class, keyed by label.
+ */
 export function NamedBlocks(block: () => EntityClass): FieldDecorator {
   return fieldDecorator({ kind: "namedBlocks", block });
 }
 
-/** Declares the field that receives the block's label. A type with a subtype takes two. */
+/**
+ * Declares the field that receives the block's label. A type with a subtype takes two.
+ *
+ * @returns A decorator recording the field as a label field.
+ */
 export function Label(): FieldDecorator {
   return fieldDecorator({ kind: "label" });
 }
@@ -159,7 +214,20 @@ export interface FuncOptions {
 
 /** A decorator usable on a method under standard or legacy decorators. */
 export interface MethodDecorator {
+  /**
+   * The standard decorators form.
+   *
+   * @param target The method decorated.
+   * @param context The method's decorator context, which names the method.
+   */
   <This, Args extends never[], Return>(target: (this: This, ...args: Args) => Return, context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>): void;
+  /**
+   * The `experimentalDecorators` form.
+   *
+   * @param target The prototype of the class declaring the method.
+   * @param property The method's name.
+   * @param descriptor The method's property descriptor, whose `value` is the method.
+   */
   (target: object, property: string | symbol, descriptor: PropertyDescriptor): void;
 }
 
@@ -173,6 +241,15 @@ export function functionSpecOf(method: unknown): FunctionSpec | undefined {
 /**
  * Offers a method to configuration, giving its parameter and result types. The
  * method may be synchronous or return a Promise.
+ *
+ * The decorator itself never throws. A parameter or result type that cannot
+ * cross to configuration, such as `Any`, makes `registerFunctions` throw
+ * {@link SchemaError}.
+ *
+ * @param params The types of the method's parameters, in order.
+ * @param result The type of the method's result, or of the value its Promise resolves to.
+ * @param options The function's name in configuration, by default the method's name.
+ * @returns A decorator recording the method's name and types, for `registerFunctions` to offer.
  */
 export function Func(params: readonly TypeSpec[], result: TypeSpec, options: FuncOptions = {}): MethodDecorator {
   const decorate = (target: unknown, second: unknown, descriptor?: PropertyDescriptor): void => {

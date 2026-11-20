@@ -12,6 +12,9 @@ import { plain, terminal, type Formatter } from "./formatters.js";
  * ```ts
  * printError(err, { formatter: forStream(process.stderr) });
  * ```
+ *
+ * @param stream The stream the output is for, such as `process.stdout`; only its `isTTY` is read.
+ * @returns `terminal` or `plain`.
  */
 export function forStream(stream: object): Formatter {
   if ((stream as { isTTY?: unknown }).isTTY !== true || (process.env.NO_COLOR ?? "") !== "") {

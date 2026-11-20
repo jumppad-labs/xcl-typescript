@@ -9,9 +9,10 @@ import type { Client } from "./internal/client.js";
  * package's `xcl-ref.txt` when it was built, which is versioned separately
  * from the package itself.
  *
- * Rejects with `EngineNotFoundError` when the engine cannot be found on first
- * use, and with `EngineVersionError` when the engine's version differs from
- * the one the package was built for.
+ * @returns A Promise that resolves to the engine's version, such as `"v0.13.1"`.
+ * @throws {@link EngineNotFoundError} when the engine cannot be found on first use.
+ * @throws {@link EngineVersionError} when the engine's version differs from the one the package was built for.
+ * @throws {@link EngineExitedError} when the engine stops before it reports its version.
  */
 export function engineVersion(): Promise<string> {
   return engineVersionWith(sharedEngineClient());
