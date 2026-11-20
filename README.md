@@ -2,6 +2,8 @@
 
 [xcl](https://github.com/jumppad-labs/xcl) for Node.js. `xcl-lang` runs the same engine Go and Python use, so a Node program reads, checks and applies configuration exactly as a Go program would, with the same Go plugins. Types are decorated classes, functions can be written in TypeScript, and long-running work never stalls the rest of your program.
 
+[Using XCL with TypeScript](https://xcl.dev/using-xcl-with-typescript/) takes a program from `npm install` to a working apply, and the [TypeScript reference](https://xcl.dev/reference/typescript/) lists every name the package exports, with its signature, parameters, return value and errors.
+
 ## Install
 
 ```sh
@@ -376,6 +378,7 @@ await using config = new Config({
 - Events, state stores and encryption: the `onEvent`, `eventData`, `stateStore` and `stateMask` options of `new Config({...})`.
 - Errors are classes, one per kind, all `instanceof XclError`.
 - [`PARITY.md`](PARITY.md) lists every Go operation and lookup with its TypeScript equivalent.
+- The [TypeScript reference](https://xcl.dev/reference/typescript/) documents every exported name.
 
 ## Engine
 
@@ -394,6 +397,8 @@ The script reads the package with [TypeDoc](https://typedoc.org), pinned as a de
 ## Releases and the engine pin
 
 Releases are automatic, and follow [xcl's release process](https://github.com/jumppad-labs/xcl#releases). Every pull request carries exactly one of the labels `patch`, `minor`, `major` or `no-release`, and merging it tags and publishes the next version of this package to npm, `xcl-lang` and its eight platform packages at the same version, with npm trusted publishing and provenance, and a GitHub release listing the merged pull requests and naming the bundled engine. The package's version line is its own: a fix here releases TypeScript alone, with no xcl release.
+
+Each release also attaches the package's API, generated from its doc comments, to its GitHub release as `xcl-lang-<version>-reference.json`, and tells xcl.dev about it, so the [TypeScript reference](https://xcl.dev/reference/typescript/) follows releases: the site moves to the new version once it builds with it.
 
 `xcl-ref.txt` pins the xcl release the package is tested against and bundles: each platform package carries that release's signed `xcl-core`. When xcl releases, a pull request titled "Use xcl engine <tag>" moves the pin to the new tag, labelled with the same size as the engine release. It merges by itself once its checks pass, which releases the package with the new engine. If its checks fail it stays open; fix the package on its branch and it merges once they pass.
 
